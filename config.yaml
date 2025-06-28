@@ -1,0 +1,20 @@
+server:
+  host: "localhost"
+  port: "8080"
+  read_timeout: "10s"
+  write_timeout: "10s"
+  tls_cert_file: "./certs/server.crt"
+  tls_key_file: "./certs/server.key"
+
+database:
+  driver: "postgres"
+  host: "localhost"
+  port: "5432"
+  username: "postgres"
+  password: "postgres"
+  dbname: "gophkeeper"
+  sslmode: "disable"
+
+auth:
+  jwt_secret: "supersecretkey"
+  jwt_expiration_hrs: 24
