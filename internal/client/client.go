@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -194,16 +195,37 @@ func (c *Client) DecryptData(data *models.Data, masterPassword string) (interfac
 		return nil, fmt.Errorf("ошибка расшифровки данных: %w", err)
 	}
 
+	var result interface{}
+
 	if data.Type == models.BinaryData {
-		var binaryData models.BinaryDataContent
-		if errUnmarshal := json.Unmarshal(decrypted, &binaryData); errUnmarshal != nil {
-			return nil, fmt.Errorf("ошибка десериализации бинарных данных: %w", errUnmarshal)
+		var binaryDataMap map[string]interface{}
+		if errUnmarshal := json.Unmarshal(decrypted, &binaryDataMap); errUnmarshal != nil {
+			return nil, errors.New("ошибка десериализации бинарных данных")
 		}
 
-		return binaryData, nil
+		fileName, ok := binaryDataMap["file_name"].(string)
+		if !ok {
+			return nil, errors.New("ошибка получения имени файла")
+		}
+
+		dataBase64, ok := binaryDataMap["data"].(string)
+		if !ok {
+			return nil, errors.New("ошибка получения данных файла")
+		}
+
+		fileData, errDecode := base64.StdEncoding.DecodeString(dataBase64)
+		if errDecode != nil {
+			return nil, errors.New("ошибка декодирования данных файла")
+		}
+
+		result = models.BinaryDataContent{
+			FileName: fileName,
+			Data:     fileData,
+		}
+
+		return result, nil
 	}
 
-	var result interface{}
 	switch data.Type {
 	case models.LoginPassword:
 		var loginData models.LoginPasswordData
@@ -224,11 +246,7 @@ func (c *Client) DecryptData(data *models.Data, masterPassword string) (interfac
 		}
 		result = textData
 	case models.BinaryData:
-		var binaryData models.BinaryDataContent
-		if errUnmarshal := json.Unmarshal(decrypted, &binaryData); errUnmarshal != nil {
-			return nil, fmt.Errorf("ошибка десериализации бинарных данных: %w", errUnmarshal)
-		}
-		result = binaryData
+		return nil, errors.New("недостижимый код")
 	default:
 		return nil, fmt.Errorf("неизвестный тип данных: %s", data.Type)
 	}
@@ -236,8 +254,24 @@ func (c *Client) DecryptData(data *models.Data, masterPassword string) (interfac
 	return result, nil
 }
 
-func (c *Client) EncryptData(data interface{}, _ models.DataType, masterPassword string) ([]byte, error) {
-	jsonData, err := json.Marshal(data)
+func (c *Client) EncryptData(data interface{}, dataType models.DataType, masterPassword string) ([]byte, error) {
+	var jsonData []byte
+	var err error
+
+	if dataType == models.BinaryData {
+		if binaryData, ok := data.(models.BinaryDataContent); ok {
+			binaryDataMap := map[string]interface{}{
+				"file_name": binaryData.FileName,
+				"data":      base64.StdEncoding.EncodeToString(binaryData.Data),
+			}
+			jsonData, err = json.Marshal(binaryDataMap)
+		} else {
+			return nil, errors.New("ошибка приведения типа бинарных данных")
+		}
+	} else {
+		jsonData, err = json.Marshal(data)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("ошибка сериализации данных: %w", err)
 	}

@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,7 +29,7 @@ func (t *TUI) updateDataTable(data []models.DataResponse) {
 
 	for i, item := range data {
 		row := i + 1
-		table.SetCell(row, idColumn, tview.NewTableCell(fmt.Sprintf("%d", item.ID)))
+		table.SetCell(row, idColumn, tview.NewTableCell(strconv.FormatInt(item.ID, 10)))
 		table.SetCell(row, typeColumn, tview.NewTableCell(t.getDataTypeLabel(item.Type)))
 		table.SetCell(row, nameColumn, tview.NewTableCell(item.Name))
 		table.SetCell(row, updatedColumn, tview.NewTableCell(formatTime(item.UpdatedAt)))
@@ -40,6 +41,7 @@ func (t *TUI) addNameField(form *tview.Form) *tview.InputField {
 	form.AddInputField("Название", "", standardFieldWidth, nil, func(text string) {
 		nameField.SetText(text)
 	})
+
 	return nameField
 }
 
@@ -62,7 +64,7 @@ func (t *TUI) addLoginPasswordFields(form *tview.Form) {
 }
 
 func (t *TUI) addTextDataFields(form *tview.Form) {
-	form.AddTextArea("Текст", "", longFieldWidth, 10, 0, nil)
+	form.AddTextArea("Текст", "", longFieldWidth, textAreaHeight, 0, nil)
 }
 
 func (t *TUI) addCardDataFields(form *tview.Form) {
@@ -84,11 +86,12 @@ func (t *TUI) addBinaryDataFields(form *tview.Form) {
 			filePathView.SetText(filePath).SetTextColor(tcell.ColorWhite)
 
 			found := false
-			for i := 0; i < form.GetFormItemCount(); i++ {
+			for i := range form.GetFormItemCount() {
 				if item, ok := form.GetFormItem(i).(*tview.InputField); ok {
 					if item.GetLabel() == "FilePath" {
 						item.SetText(filePath)
 						found = true
+
 						break
 					}
 				}
@@ -124,6 +127,7 @@ func (t *TUI) handleSaveData(form *tview.Form, nameField *tview.InputField, data
 	name := nameField.GetText()
 	if name == "" {
 		t.showError("Название не может быть пустым")
+
 		return
 	}
 
@@ -147,207 +151,239 @@ func (t *TUI) handleSaveData(form *tview.Form, nameField *tview.InputField, data
 	t.processDataByType(form, req)
 }
 
-func (t *TUI) processDataByType(form *tview.Form, req *models.DataRequest) {
-	switch req.Type {
-	case models.LoginPassword:
-		login := ""
-		password := ""
+func (t *TUI) encryptAndSaveData(data interface{}, req *models.DataRequest) {
+	t.showPasswordDialog(func(password string) {
+		encryptedData, errEncryptData := t.client.EncryptData(data, req.Type, password)
+		if errEncryptData != nil {
+			t.showError(fmt.Sprintf("Ошибка шифрования: %v", errEncryptData))
 
-		for i := 0; i < form.GetFormItemCount(); i++ {
-			item := form.GetFormItem(i)
-			if field, ok := item.(*tview.InputField); ok {
-				switch field.GetLabel() {
-				case "Логин:":
-					login = field.GetText()
-				case "Пароль:":
-					password = field.GetText()
-				}
-			}
-		}
-
-		data := models.LoginPasswordData{
-			Login:    login,
-			Password: password,
-		}
-
-		t.showPasswordDialog(func(password string) {
-			encryptedData, err := t.client.EncryptData(data, req.Type, password)
-			if err != nil {
-				t.showError(fmt.Sprintf("Ошибка шифрования: %v", err))
-				return
-			}
-
-			id, err := t.client.CreateData(context.Background(), req.Name, req.Type, encryptedData)
-			if err != nil {
-				t.showError(fmt.Sprintf("Ошибка сохранения: %v", err))
-				return
-			}
-
-			t.showInfo(fmt.Sprintf("Данные успешно сохранены с ID: %d", id))
-			t.loadData()
-			t.pages.SwitchToPage("main")
-		})
-	case models.TextData:
-		text := ""
-
-		for i := 0; i < form.GetFormItemCount(); i++ {
-			item := form.GetFormItem(i)
-			if field, ok := item.(*tview.TextArea); ok {
-				switch field.GetLabel() {
-				case "Текст:":
-					text = field.GetText()
-				}
-			}
-		}
-
-		data := models.TextDataContent{
-			Text: text,
-		}
-
-		t.showPasswordDialog(func(password string) {
-			encryptedData, err := t.client.EncryptData(data, req.Type, password)
-			if err != nil {
-				t.showError(fmt.Sprintf("Ошибка шифрования: %v", err))
-				return
-			}
-
-			id, err := t.client.CreateData(context.Background(), req.Name, req.Type, encryptedData)
-			if err != nil {
-				t.showError(fmt.Sprintf("Ошибка сохранения: %v", err))
-				return
-			}
-
-			t.showInfo(fmt.Sprintf("Данные успешно сохранены с ID: %d", id))
-			t.loadData()
-			t.pages.SwitchToPage("main")
-		})
-	case models.CardData:
-		cardNumber := ""
-		cardholderName := ""
-		expiryDate := ""
-		cvv := ""
-
-		for i := 0; i < form.GetFormItemCount(); i++ {
-			item := form.GetFormItem(i)
-			if field, ok := item.(*tview.InputField); ok {
-				switch field.GetLabel() {
-				case "Номер карты:":
-					cardNumber = field.GetText()
-				case "Имя владельца:":
-					cardholderName = field.GetText()
-				case "Срок действия (MM/YY):":
-					expiryDate = field.GetText()
-				case "CVV:":
-					cvv = field.GetText()
-				}
-			}
-		}
-
-		data := models.CardDataContent{
-			CardNumber: cardNumber,
-			CardHolder: cardholderName,
-			ExpiryDate: expiryDate,
-			CVV:        cvv,
-		}
-
-		t.showPasswordDialog(func(password string) {
-			encryptedData, err := t.client.EncryptData(data, req.Type, password)
-			if err != nil {
-				t.showError(fmt.Sprintf("Ошибка шифрования: %v", err))
-				return
-			}
-
-			id, err := t.client.CreateData(context.Background(), req.Name, req.Type, encryptedData)
-			if err != nil {
-				t.showError(fmt.Sprintf("Ошибка сохранения: %v", err))
-				return
-			}
-
-			t.showInfo(fmt.Sprintf("Данные успешно сохранены с ID: %d", id))
-			t.loadData()
-			t.pages.SwitchToPage("main")
-		})
-	case models.BinaryData:
-		filePath := ""
-
-		for i := 0; i < form.GetFormItemCount(); i++ {
-			item := form.GetFormItem(i)
-
-			if field, ok := item.(*tview.InputField); ok && field.GetLabel() == "FilePath" {
-				filePath = field.GetText()
-				break
-			}
-		}
-
-		if filePath == "" {
-			t.showError("Файл не выбран")
 			return
 		}
 
-		fileData, err := os.ReadFile(filePath)
-		if err != nil {
-			t.showError(fmt.Sprintf("Ошибка чтения файла: %v", err))
+		id, errCreateData := t.client.CreateData(context.Background(), req.Name, req.Type, encryptedData)
+		if errCreateData != nil {
+			t.showError(fmt.Sprintf("Ошибка сохранения: %v", errCreateData))
+
 			return
 		}
 
-		data := models.BinaryDataContent{
-			FileName: filepath.Base(filePath),
-			Data:     fileData,
+		t.showInfo(fmt.Sprintf("Данные успешно сохранены с ID: %d", id))
+		t.loadData()
+		t.pages.SwitchToPage("main")
+	})
+}
+
+func (t *TUI) extractLoginPasswordData(form *tview.Form) models.LoginPasswordData {
+	login := ""
+	password := ""
+
+	for i := range form.GetFormItemCount() {
+		item := form.GetFormItem(i)
+		if field, ok := item.(*tview.InputField); ok {
+			switch field.GetLabel() {
+			case "Логин:":
+				login = field.GetText()
+			case "Пароль:":
+				password = field.GetText()
+			}
 		}
+	}
 
-		t.showPasswordDialog(func(password string) {
-			encryptedData, err := t.client.EncryptData(data, req.Type, password)
-			if err != nil {
-				t.showError(fmt.Sprintf("Ошибка шифрования: %v", err))
-				return
-			}
-
-			id, err := t.client.CreateData(context.Background(), req.Name, req.Type, encryptedData)
-			if err != nil {
-				t.showError(fmt.Sprintf("Ошибка сохранения: %v", err))
-				return
-			}
-
-			t.showInfo(fmt.Sprintf("Данные успешно сохранены с ID: %d", id))
-			t.loadData()
-			t.pages.SwitchToPage("main")
-		})
+	return models.LoginPasswordData{
+		Login:    login,
+		Password: password,
 	}
 }
 
-func (t *TUI) handleDecryptData(id int64) {
-	var currentData *models.DataResponse
-	for i, data := range t.dataList {
-		if data.ID == id {
-			currentData = &t.dataList[i]
+func (t *TUI) extractTextData(form *tview.Form) models.TextDataContent {
+	text := ""
+
+	for i := range form.GetFormItemCount() {
+		item := form.GetFormItem(i)
+		if field, ok := item.(*tview.TextArea); ok {
+			if field.GetLabel() == "Текст:" {
+				text = field.GetText()
+			}
+		}
+	}
+
+	return models.TextDataContent{
+		Text: text,
+	}
+}
+
+func (t *TUI) extractCardData(form *tview.Form) models.CardDataContent {
+	cardNumber := ""
+	cardholderName := ""
+	expiryDate := ""
+	cvv := ""
+
+	for i := range form.GetFormItemCount() {
+		item := form.GetFormItem(i)
+		if field, ok := item.(*tview.InputField); ok {
+			switch field.GetLabel() {
+			case "Номер карты:":
+				cardNumber = field.GetText()
+			case "Имя владельца:":
+				cardholderName = field.GetText()
+			case "Срок действия (MM/YY):":
+				expiryDate = field.GetText()
+			case "CVV:":
+				cvv = field.GetText()
+			}
+		}
+	}
+
+	return models.CardDataContent{
+		CardNumber: cardNumber,
+		CardHolder: cardholderName,
+		ExpiryDate: expiryDate,
+		CVV:        cvv,
+	}
+}
+
+func (t *TUI) extractBinaryData(form *tview.Form) (models.BinaryDataContent, error) {
+	filePath := ""
+
+	for i := range form.GetFormItemCount() {
+		item := form.GetFormItem(i)
+
+		if field, ok := item.(*tview.InputField); ok && field.GetLabel() == "FilePath" {
+			filePath = field.GetText()
+
 			break
 		}
 	}
 
+	if filePath == "" {
+		return models.BinaryDataContent{}, errors.New("файл не выбран")
+	}
+
+	fileData, err := os.ReadFile(filePath)
+	if err != nil {
+		return models.BinaryDataContent{}, fmt.Errorf("ошибка чтения файла: %w", err)
+	}
+
+	return models.BinaryDataContent{
+		FileName: filepath.Base(filePath),
+		Data:     fileData,
+	}, nil
+}
+
+func (t *TUI) processDataByType(form *tview.Form, req *models.DataRequest) {
+	switch req.Type {
+	case models.LoginPassword:
+		data := t.extractLoginPasswordData(form)
+		t.encryptAndSaveData(data, req)
+
+	case models.TextData:
+		data := t.extractTextData(form)
+		t.encryptAndSaveData(data, req)
+
+	case models.CardData:
+		data := t.extractCardData(form)
+		t.encryptAndSaveData(data, req)
+
+	case models.BinaryData:
+		data, err := t.extractBinaryData(form)
+		if err != nil {
+			t.showError(err.Error())
+
+			return
+		}
+		t.encryptAndSaveData(data, req)
+	}
+}
+
+func (t *TUI) handleDecryptData(id int64) {
+	currentData, dataIndex := t.findDataByID(id)
 	if currentData == nil {
 		t.showError("Данные не найдены")
+
 		return
 	}
 
 	t.showPasswordDialog(func(password string) {
-		encryptedData, err := t.client.GetEncryptedData(id)
-		if err != nil {
-			t.showError(fmt.Sprintf("Ошибка получения зашифрованных данных: %v", err))
-			return
-		}
-
-		decryptedContent, err := t.client.DecryptData(encryptedData, password)
-		if err != nil {
-			t.showError(fmt.Sprintf("Ошибка расшифровки данных: %v", err))
-			return
-		}
-
-		currentData.Content = decryptedContent
-
-		if t.setViewData != nil {
-			t.setViewData(*currentData)
-		}
+		t.decryptAndUpdateData(currentData, dataIndex, password)
 	})
+}
+
+func (t *TUI) findDataByID(id int64) (*models.DataResponse, int) {
+	for i, data := range t.dataList {
+		if data.ID == id {
+			return &t.dataList[i], i
+		}
+	}
+
+	return nil, -1
+}
+
+func (t *TUI) decryptAndUpdateData(currentData *models.DataResponse, dataIndex int, password string) {
+	encryptedData, err := t.client.GetEncryptedData(currentData.ID)
+	if err != nil {
+		t.showError(fmt.Sprintf("Ошибка получения зашифрованных данных: %v", err))
+
+		return
+	}
+
+	decryptedContent, err := t.client.DecryptData(encryptedData, password)
+	if err != nil {
+		t.showError(fmt.Sprintf("Ошибка расшифровки данных: %v", err))
+
+		return
+	}
+
+	if !t.validateDecryptedContent(currentData.Type, decryptedContent) {
+		return
+	}
+
+	t.dataList[dataIndex].Content = decryptedContent
+	currentData.Content = decryptedContent
+
+	if t.setViewData != nil {
+		t.setViewData(*currentData)
+	}
+}
+
+func (t *TUI) validateDecryptedContent(dataType models.DataType, content interface{}) bool {
+	switch dataType {
+	case models.BinaryData:
+		if binaryData, ok := content.(models.BinaryDataContent); ok {
+			if len(binaryData.Data) == 0 {
+				t.showError("Предупреждение: расшифрованный файл не содержит данных")
+			} else {
+				t.showInfo(fmt.Sprintf("Файл успешно расшифрован: %s (%d байт)",
+					binaryData.FileName, len(binaryData.Data)))
+			}
+		} else {
+			t.showError("Ошибка: расшифрованные данные имеют неверный формат")
+
+			return false
+		}
+	case models.TextData:
+		if _, ok := content.(models.TextDataContent); !ok {
+			t.showError("Ошибка: расшифрованные текстовые данные имеют неверный формат")
+
+			return false
+		}
+		t.showInfo("Текст успешно расшифрован")
+	case models.CardData:
+		if _, ok := content.(models.CardDataContent); !ok {
+			t.showError("Ошибка: расшифрованные данные карты имеют неверный формат")
+
+			return false
+		}
+		t.showInfo("Данные карты успешно расшифрованы")
+	case models.LoginPassword:
+		if _, ok := content.(models.LoginPasswordData); !ok {
+			t.showError("Ошибка: расшифрованные данные логина/пароля имеют неверный формат")
+
+			return false
+		}
+		t.showInfo("Логин и пароль успешно расшифрованы")
+	}
+
+	return true
 }
 
 func (t *TUI) displayLoginPasswordContent(text *tview.TextView, content interface{}) {
@@ -412,11 +448,14 @@ func (t *TUI) displayCardDataContent(text *tview.TextView, content interface{}) 
 }
 
 func (t *TUI) displayBinaryDataContent(text *tview.TextView, content interface{}) {
+	contentType := fmt.Sprintf("%T", content)
+
 	if data, ok := content.(models.BinaryDataContent); ok {
 		fmt.Fprintf(text, "[yellow]Имя файла:[white] %s\n", data.FileName)
 		fmt.Fprintf(text, "[yellow]Размер:[white] %d байт\n", len(data.Data))
 	} else {
 		fmt.Fprintf(text, "Ошибка отображения бинарных данных\n")
+		fmt.Fprintf(text, "Тип полученных данных: %s\n", contentType)
 	}
 }
 
@@ -438,6 +477,7 @@ func (t *TUI) extractIDFromText(text *tview.TextView) int64 {
 			}
 		}
 	}
+
 	return 0
 }
 
@@ -450,6 +490,7 @@ func (t *TUI) handleDeleteData(id int64) {
 			err := t.client.DeleteData(context.Background(), id)
 			if err != nil {
 				t.showError(fmt.Sprintf("Ошибка удаления: %v", err))
+
 				return
 			}
 
@@ -464,6 +505,7 @@ func (t *TUI) loadData() {
 	data, err := t.client.GetAllData()
 	if err != nil {
 		t.showError(fmt.Sprintf("Ошибка загрузки данных: %v", err))
+
 		return
 	}
 
@@ -493,7 +535,7 @@ func (t *TUI) saveFile(fileName string, data []byte) {
 }
 
 func (t *TUI) writeFile(filePath string, data []byte) {
-	err := os.WriteFile(filePath, data, 0644)
+	err := os.WriteFile(filePath, data, 0600)
 	if err != nil {
 		t.showError(fmt.Sprintf("Ошибка сохранения файла: %v", err))
 	} else {

@@ -15,11 +15,17 @@ const (
 	shortFieldWidth    = 20
 	longFieldWidth     = 50
 	cvvFieldWidth      = 3
+	textAreaHeight     = 10
 
 	idColumn      = 0
 	typeColumn    = 1
 	nameColumn    = 2
 	updatedColumn = 3
+
+	dataTypeLoginPass = "Логин/Пароль" // #nosec G101
+	dataTypeText      = "Текст"
+	dataTypeCard      = "Карта"
+	dataTypeFile      = "Файл"
 
 	dialogWidth  = 60
 	dialogHeight = 15
@@ -27,6 +33,11 @@ const (
 	passwordFieldWidth = 30
 
 	syncIntervalSeconds = 15
+
+	dialogFieldWidth = 50
+	formPadding      = 3
+	formWidth        = 60
+	formSidePadding  = 20
 )
 
 type Config struct {
@@ -43,13 +54,11 @@ type TUI struct {
 	config            *Config
 	configPath        string
 	dataList          []models.DataResponse
-	data              []models.DataResponse
 	setViewData       func(data models.DataResponse)
 	lastFileDialogDir string
 	updateTable       func()
 	syncTimer         *time.Timer
 	dataTable         *tview.Table
-	binaryData        models.BinaryDataContent
 }
 
 func NewTUI(configPath string) (*TUI, error) {
@@ -144,13 +153,13 @@ func (t *TUI) initPages() {
 func (t *TUI) getDataTypeLabel(dataType models.DataType) string {
 	switch dataType {
 	case models.LoginPassword:
-		return "Логин/Пароль"
+		return dataTypeLoginPass
 	case models.TextData:
-		return "Текст"
+		return dataTypeText
 	case models.CardData:
-		return "Карта"
+		return dataTypeCard
 	case models.BinaryData:
-		return "Файл"
+		return dataTypeFile
 	default:
 		return string(dataType)
 	}

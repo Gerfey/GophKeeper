@@ -6,6 +6,11 @@ import (
 	"github.com/rivo/tview"
 )
 
+const (
+	buttonWidth      = 40
+	buttonAreaHeight = 3
+)
+
 func (t *TUI) createMainPage() tview.Primitive {
 	flex := tview.NewFlex().SetDirection(tview.FlexRow)
 
@@ -32,7 +37,7 @@ func (t *TUI) createMainPage() tview.Primitive {
 		t.createViewPageForData(data)
 	}
 
-	table.SetSelectedFunc(func(row, column int) {
+	table.SetSelectedFunc(func(row, _ int) {
 		if row > 0 && row <= len(t.dataList) {
 			data := t.dataList[row-1]
 			createViewPageForData(data)
@@ -56,11 +61,11 @@ func (t *TUI) createMainPage() tview.Primitive {
 	buttonsLayout := tview.NewFlex().
 		SetDirection(tview.FlexColumn).
 		AddItem(nil, 0, 1, false).
-		AddItem(form, 40, 1, true).
+		AddItem(form, buttonWidth, 1, true).
 		AddItem(nil, 0, 1, false)
 
 	flex.AddItem(table, 0, 1, true).
-		AddItem(buttonsLayout, 3, 0, false)
+		AddItem(buttonsLayout, buttonAreaHeight, 0, false)
 
 	flex.SetTitle("GophKeeper - Данные").SetBorder(true)
 
@@ -86,7 +91,7 @@ func (t *TUI) createAddPage() tview.Primitive {
 		t.addAddPageButtons(form, nameField, dataTypes, typeIndex)
 	}
 
-	form.AddDropDown("Тип данных", dataTypes, currentTypeIndex, func(option string, index int) {
+	form.AddDropDown("Тип данных", dataTypes, currentTypeIndex, func(_ string, index int) {
 		if index != currentTypeIndex {
 			currentTypeIndex = index
 			updateFormFields(index)
@@ -114,12 +119,26 @@ func (t *TUI) createViewPageButtons(text *tview.TextView, data models.DataRespon
 
 	if data.Type == models.BinaryData {
 		buttons.AddButton("Скачать", func() {
-			if binaryData, ok := data.Content.(models.BinaryDataContent); ok && binaryData.Data != nil &&
-				len(binaryData.Data) > 0 {
-				t.saveFile(binaryData.FileName, binaryData.Data)
-			} else {
+			if data.Content == nil {
 				t.showError("Сначала необходимо расшифровать данные")
+
+				return
 			}
+
+			binaryData, ok := data.Content.(models.BinaryDataContent)
+			if !ok {
+				t.showError("Ошибка: неверный формат данных")
+
+				return
+			}
+
+			if len(binaryData.Data) == 0 {
+				t.showError("Ошибка: файл пуст или данные не были корректно расшифрованы")
+
+				return
+			}
+
+			t.saveFile(binaryData.FileName, binaryData.Data)
 		})
 	}
 
@@ -157,7 +176,7 @@ func (t *TUI) createViewPageForData(data models.DataResponse) {
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(text, 0, 1, false).
-		AddItem(buttons, 3, 0, true)
+		AddItem(buttons, buttonAreaHeight, 0, true)
 
 	t.pages.AddPage("view", flex, true, true)
 }
@@ -174,13 +193,13 @@ func (t *TUI) createViewPage() tview.Primitive {
 	buttonsLayout := tview.NewFlex().
 		SetDirection(tview.FlexColumn).
 		AddItem(nil, 0, 1, false).
-		AddItem(buttons, 40, 1, true).
+		AddItem(buttons, buttonWidth, 1, true).
 		AddItem(nil, 0, 1, false)
 
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(text, 0, 1, false).
-		AddItem(buttonsLayout, 3, 0, true)
+		AddItem(buttonsLayout, buttonAreaHeight, 0, true)
 
 	flex.SetTitle("GophKeeper - Просмотр данных").SetBorder(true)
 

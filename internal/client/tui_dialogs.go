@@ -21,7 +21,7 @@ func (t *TUI) showDialog(title, message, buttonText string, callback func()) {
 	modal := tview.NewModal().
 		SetText(message).
 		AddButtons([]string{buttonText}).
-		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+		SetDoneFunc(func(buttonIndex int, _ string) {
 			if buttonIndex == 0 && callback != nil {
 				callback()
 			}
@@ -57,23 +57,26 @@ func (t *TUI) showCreateMasterPasswordModal() {
 
 		if password == "" {
 			t.showError("Пароль не может быть пустым")
+
 			return
 		}
 
 		if password != confirmPassword {
 			t.showError("Пароли не совпадают")
+
 			return
 		}
 
 		err := t.client.SetMasterPassword(password)
 		if err != nil {
 			t.showError(fmt.Sprintf("Ошибка установки мастер-пароля: %v", err))
+
 			return
 		}
 
 		t.config.HasMasterPassword = true
-		if err := t.saveConfig(); err != nil {
-			t.showError(fmt.Sprintf("Ошибка сохранения конфигурации: %v", err))
+		if saveErr := t.saveConfig(); saveErr != nil {
+			t.showError(fmt.Sprintf("Ошибка сохранения конфигурации: %v", saveErr))
 		}
 
 		t.pages.RemovePage("masterPasswordModal")
@@ -117,6 +120,7 @@ func (t *TUI) showPasswordDialogFixed(callback func(password string)) {
 		password := passwordField.GetText()
 		if password == "" {
 			t.showError("Пароль не может быть пустым")
+
 			return
 		}
 
@@ -153,101 +157,103 @@ func (t *TUI) showPasswordDialog(callback func(password string)) {
 	t.showPasswordDialogFixed(callback)
 }
 
-func (t *TUI) showFileDialog(callback func(filePath string)) {
-	var currentDir string
+func (t *TUI) createFileList(dir string, updateFileList func(string), callback func(filePath string)) *tview.List {
+	files, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		t.showError(fmt.Sprintf("Ошибка чтения директории: %v", readErr))
 
-	if t.lastFileDialogDir != "" {
-		currentDir = t.lastFileDialogDir
-	} else {
-		homeDir, err := os.UserHomeDir()
-		if err == nil {
-			currentDir = homeDir
-		} else {
-			var err2 error
-			currentDir, err2 = os.Getwd()
-			if err2 != nil {
-				t.showError(fmt.Sprintf("Ошибка получения текущей директории: %v", err2))
-				return
-			}
+		return tview.NewList().ShowSecondaryText(false)
+	}
+
+	list := tview.NewList().ShowSecondaryText(false)
+
+	list.AddItem("..", "", 0, func() {
+		parentDir := filepath.Dir(dir)
+		t.pages.RemovePage("file_dialog")
+		updateFileList(parentDir)
+	})
+
+	for _, file := range files {
+		fileName := file.Name()
+		isDir := file.IsDir()
+
+		if strings.HasPrefix(fileName, ".") {
+			continue
 		}
+
+		localFileName := fileName
+
+		if isDir {
+			list.AddItem(fileName+"/", "", 0, func() {
+				path := filepath.Join(dir, localFileName)
+				t.pages.RemovePage("file_dialog")
+				updateFileList(path)
+			})
+		} else {
+			list.AddItem(fileName, "", 0, func() {
+				path := filepath.Join(dir, localFileName)
+				t.pages.RemovePage("file_dialog")
+				callback(path)
+			})
+		}
+	}
+
+	return list
+}
+
+func (t *TUI) createFileDialogForm(dir string, callback func(filePath string)) (*tview.Form, *tview.InputField) {
+	inputField := tview.NewInputField().
+		SetLabel("Имя файла: ").
+		SetFieldWidth(dialogFieldWidth)
+
+	form := tview.NewForm()
+	form.AddButton("Выбрать", func() {
+		fileName := inputField.GetText()
+		if fileName == "" {
+			t.showError("Введите имя файла")
+
+			return
+		}
+
+		path := filepath.Join(dir, fileName)
+		t.pages.RemovePage("file_dialog")
+		callback(path)
+	})
+	form.AddButton("Отмена", func() {
+		t.pages.RemovePage("file_dialog")
+	})
+	form.SetButtonsAlign(tview.AlignCenter)
+
+	return form, inputField
+}
+
+func (t *TUI) showFileDialog(callback func(filePath string)) {
+	initialDir, err := t.getInitialDirectory()
+	if err != nil {
+		t.showError(fmt.Sprintf("Ошибка получения текущей директории: %v", err))
+
+		return
 	}
 
 	var updateFileList func(string)
 	updateFileList = func(dir string) {
 		t.lastFileDialogDir = dir
 
-		files, readErr := os.ReadDir(dir)
-		if readErr != nil {
-			t.showError(fmt.Sprintf("Ошибка чтения директории: %v", readErr))
-			return
-		}
-
-		list := tview.NewList().ShowSecondaryText(false)
-
-		list.AddItem("..", "", 0, func() {
-			parentDir := filepath.Dir(dir)
-			t.pages.RemovePage("file_dialog")
-			updateFileList(parentDir)
-		})
-
-		for _, file := range files {
-			fileName := file.Name()
-			isDir := file.IsDir()
-
-			if strings.HasPrefix(fileName, ".") {
-				continue
-			}
-
-			localFileName := fileName
-
-			if isDir {
-				list.AddItem(fileName+"/", "", 0, func() {
-					path := filepath.Join(dir, localFileName)
-					t.pages.RemovePage("file_dialog")
-					updateFileList(path)
-				})
-			} else {
-				list.AddItem(fileName, "", 0, func() {
-					path := filepath.Join(dir, localFileName)
-					t.pages.RemovePage("file_dialog")
-					callback(path)
-				})
-			}
-		}
-
-		inputField := tview.NewInputField().
-			SetLabel("Имя файла: ").
-			SetFieldWidth(50)
-
-		form := tview.NewForm()
-		form.AddButton("Выбрать", func() {
-			fileName := inputField.GetText()
-			if fileName == "" {
-				t.showError("Введите имя файла")
-				return
-			}
-
-			path := filepath.Join(dir, fileName)
-			t.pages.RemovePage("file_dialog")
-			callback(path)
-		})
-		form.AddButton("Отмена", func() {
-			t.pages.RemovePage("file_dialog")
-		})
-		form.SetButtonsAlign(tview.AlignCenter)
+		list := t.createFileList(dir, updateFileList, callback)
+		form, inputField := t.createFileDialogForm(dir, callback)
 
 		layout := tview.NewFlex().SetDirection(tview.FlexRow).
 			AddItem(tview.NewTextView().SetText("Текущая директория: "+dir), 1, 0, false).
 			AddItem(list, 0, 1, true).
 			AddItem(inputField, 1, 0, false).
-			AddItem(form, 3, 0, false)
+			AddItem(form, formPadding, 0, false)
 
 		modal := tview.NewFlex().SetDirection(tview.FlexRow).
 			AddItem(nil, 0, 1, false).
 			AddItem(tview.NewFlex().SetDirection(tview.FlexColumn).
 				AddItem(nil, 0, 1, false).
-				AddItem(layout, 60, 1, true).
-				AddItem(nil, 0, 1, false), 20, 1, true).
+				AddItem(layout, formWidth, 1, true).
+				AddItem(nil, 0, 1, false), formSidePadding, 1, true).
 			AddItem(nil, 0, 1, false)
 
 		modal.SetBorder(true).
@@ -258,116 +264,142 @@ func (t *TUI) showFileDialog(callback func(filePath string)) {
 		t.app.SetFocus(list)
 	}
 
-	updateFileList(currentDir)
+	updateFileList(initialDir)
+}
+
+func (t *TUI) createDirList(dir string, updateFileList func(string)) *tview.List {
+	files, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		t.showError(fmt.Sprintf("Ошибка чтения директории: %v", readErr))
+
+		return tview.NewList().ShowSecondaryText(false)
+	}
+
+	list := tview.NewList().ShowSecondaryText(false)
+
+	list.AddItem("..", "", 0, func() {
+		parentDir := filepath.Dir(dir)
+		t.pages.RemovePage("file_dialog_dir")
+		updateFileList(parentDir)
+	})
+
+	for _, file := range files {
+		fileName := file.Name()
+		isDir := file.IsDir()
+
+		if strings.HasPrefix(fileName, ".") {
+			continue
+		}
+
+		localFileName := fileName
+
+		if isDir {
+			list.AddItem(fileName+"/", "", 0, func() {
+				path := filepath.Join(dir, localFileName)
+				t.pages.RemovePage("file_dialog_dir")
+				updateFileList(path)
+			})
+		}
+	}
+
+	return list
+}
+
+func (t *TUI) createDirDialogForm(
+	dir string,
+	updateFileList func(string),
+	callback func(dirPath string),
+) (*tview.Form, *tview.InputField) {
+	inputField := tview.NewInputField().
+		SetLabel("Путь: ").
+		SetFieldWidth(dialogFieldWidth).
+		SetText(dir)
+
+	form := tview.NewForm()
+	form.AddButton("Выбрать эту директорию", func() {
+		t.pages.RemovePage("file_dialog_dir")
+		callback(dir)
+	})
+	form.AddButton("Создать директорию", func() {
+		newDirName := inputField.GetText()
+		if newDirName == "" {
+			t.showError("Введите имя директории")
+
+			return
+		}
+
+		if !filepath.IsAbs(newDirName) {
+			newDirName = filepath.Join(dir, newDirName)
+		}
+
+		if _, err := os.Stat(newDirName); err == nil {
+			t.showError("Директория уже существует")
+
+			return
+		}
+
+		if err := os.MkdirAll(newDirName, 0750); err != nil {
+			t.showError(fmt.Sprintf("Ошибка создания директории: %v", err))
+
+			return
+		}
+
+		t.pages.RemovePage("file_dialog_dir")
+		updateFileList(newDirName)
+	})
+	form.AddButton("Отмена", func() {
+		t.pages.RemovePage("file_dialog_dir")
+	})
+	form.SetButtonsAlign(tview.AlignCenter)
+
+	return form, inputField
+}
+
+func (t *TUI) getInitialDirectory() (string, error) {
+	if t.lastFileDialogDir != "" {
+		return t.lastFileDialogDir, nil
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err == nil {
+		return homeDir, nil
+	}
+
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	return currentDir, nil
 }
 
 func (t *TUI) showFileDialogForDir(callback func(dirPath string)) {
-	var currentDir string
+	initialDir, err := t.getInitialDirectory()
+	if err != nil {
+		t.showError(fmt.Sprintf("Ошибка получения текущей директории: %v", err))
 
-	if t.lastFileDialogDir != "" {
-		currentDir = t.lastFileDialogDir
-	} else {
-		homeDir, err := os.UserHomeDir()
-		if err == nil {
-			currentDir = homeDir
-		} else {
-			var err2 error
-			currentDir, err2 = os.Getwd()
-			if err2 != nil {
-				t.showError(fmt.Sprintf("Ошибка получения текущей директории: %v", err2))
-				return
-			}
-		}
+		return
 	}
 
 	var updateFileList func(string)
 	updateFileList = func(dir string) {
 		t.lastFileDialogDir = dir
 
-		files, readErr := os.ReadDir(dir)
-		if readErr != nil {
-			t.showError(fmt.Sprintf("Ошибка чтения директории: %v", readErr))
-			return
-		}
-
-		list := tview.NewList().ShowSecondaryText(false)
-
-		list.AddItem("..", "", 0, func() {
-			parentDir := filepath.Dir(dir)
-			t.pages.RemovePage("file_dialog_dir")
-			updateFileList(parentDir)
-		})
-
-		for _, file := range files {
-			fileName := file.Name()
-			isDir := file.IsDir()
-
-			if strings.HasPrefix(fileName, ".") {
-				continue
-			}
-
-			localFileName := fileName
-
-			if isDir {
-				list.AddItem(fileName+"/", "", 0, func() {
-					path := filepath.Join(dir, localFileName)
-					t.pages.RemovePage("file_dialog_dir")
-					updateFileList(path)
-				})
-			}
-		}
-
-		inputField := tview.NewInputField().
-			SetLabel("Путь: ").
-			SetFieldWidth(50).
-			SetText(dir)
-
-		form := tview.NewForm()
-		form.AddButton("Выбрать эту директорию", func() {
-			t.pages.RemovePage("file_dialog_dir")
-			callback(dir)
-		})
-		form.AddButton("Создать директорию", func() {
-			newDirName := inputField.GetText()
-			if newDirName == "" {
-				t.showError("Введите имя директории")
-				return
-			}
-
-			if !filepath.IsAbs(newDirName) {
-				newDirName = filepath.Join(dir, newDirName)
-			}
-
-			if _, err := os.Stat(newDirName); err == nil {
-				t.showError("Директория уже существует")
-				return
-			}
-
-			if err := os.MkdirAll(newDirName, 0755); err != nil {
-				t.showError(fmt.Sprintf("Ошибка создания директории: %v", err))
-				return
-			}
-
-			t.pages.RemovePage("file_dialog_dir")
-			updateFileList(newDirName)
-		})
-		form.AddButton("Отмена", func() {
-			t.pages.RemovePage("file_dialog_dir")
-		})
-		form.SetButtonsAlign(tview.AlignCenter)
+		list := t.createDirList(dir, updateFileList)
+		form, inputField := t.createDirDialogForm(dir, updateFileList, callback)
 
 		layout := tview.NewFlex().SetDirection(tview.FlexRow).
 			AddItem(tview.NewTextView().SetText("Текущая директория: "+dir), 1, 0, false).
 			AddItem(list, 0, 1, true).
 			AddItem(inputField, 1, 0, false).
-			AddItem(form, 3, 0, false)
+			AddItem(form, formPadding, 0, false)
 
 		modal := tview.NewFlex().SetDirection(tview.FlexRow).
 			AddItem(nil, 0, 1, false).
 			AddItem(tview.NewFlex().SetDirection(tview.FlexColumn).
 				AddItem(nil, 0, 1, false).
-				AddItem(layout, 60, 1, true).
-				AddItem(nil, 0, 1, false), 20, 1, true).
+				AddItem(layout, formWidth, 1, true).
+				AddItem(nil, 0, 1, false), formSidePadding, 1, true).
 			AddItem(nil, 0, 1, false)
 
 		modal.SetBorder(true).
@@ -378,5 +410,5 @@ func (t *TUI) showFileDialogForDir(callback func(dirPath string)) {
 		t.app.SetFocus(list)
 	}
 
-	updateFileList(currentDir)
+	updateFileList(initialDir)
 }
