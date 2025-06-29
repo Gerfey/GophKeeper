@@ -987,29 +987,48 @@ func (t *TUI) displayCardDataContent(text *tview.TextView, content interface{}) 
 	}
 }
 
-//nolint:nestif
 func (t *TUI) displayBinaryDataContent(text *tview.TextView, content interface{}) {
-	if binaryData, ok := content.(models.BinaryDataContent); ok {
-		fmt.Fprintf(text, "[yellow]Имя файла:[white] %s\n", binaryData.FileName)
-
-		if len(binaryData.Data) > 0 {
-			fmt.Fprintf(text, "[yellow]Размер:[white] %d байт\n", len(binaryData.Data))
-		}
-	} else {
-		if binaryData, isStruct := content.(struct {
-			FileName string `json:"file_name"`
-			Data     []byte `json:"data"`
-		}); isStruct {
-			fmt.Fprintf(text, "[yellow]Имя файла:[white] %s\n", binaryData.FileName)
-
-			if len(binaryData.Data) > 0 {
-				fmt.Fprintf(text, "[yellow]Размер:[white] %d байт\n", len(binaryData.Data))
-			}
-		} else {
-			fmt.Fprintf(text, "[red]Ошибка:[white] Не удалось преобразовать данные в формат бинарного файла\n")
-			fmt.Fprintf(text, "[yellow]Отладочная информация:[white] %v\n", content)
-		}
+	if t.displayStandardBinaryContent(text, content) {
+		return
 	}
+
+	if t.displayStructBinaryContent(text, content) {
+		return
+	}
+
+	fmt.Fprintf(text, "[red]Ошибка:[white] Не удалось преобразовать данные в формат бинарного файла\n")
+	fmt.Fprintf(text, "[yellow]Отладочная информация:[white] %v\n", content)
+}
+
+func (t *TUI) displayStandardBinaryContent(text *tview.TextView, content interface{}) bool {
+	binaryData, ok := content.(models.BinaryDataContent)
+	if !ok {
+		return false
+	}
+
+	fmt.Fprintf(text, "[yellow]Имя файла:[white] %s\n", binaryData.FileName)
+	if len(binaryData.Data) > 0 {
+		fmt.Fprintf(text, "[yellow]Размер:[white] %d байт\n", len(binaryData.Data))
+	}
+
+	return true
+}
+
+func (t *TUI) displayStructBinaryContent(text *tview.TextView, content interface{}) bool {
+	binaryData, isStruct := content.(struct {
+		FileName string `json:"file_name"`
+		Data     []byte `json:"data"`
+	})
+	if !isStruct {
+		return false
+	}
+
+	fmt.Fprintf(text, "[yellow]Имя файла:[white] %s\n", binaryData.FileName)
+	if len(binaryData.Data) > 0 {
+		fmt.Fprintf(text, "[yellow]Размер:[white] %d байт\n", len(binaryData.Data))
+	}
+
+	return true
 }
 
 func (t *TUI) loadData() {

@@ -145,40 +145,75 @@ func (s *DataService) processClientData(
 	result []*models.Data,
 ) []*models.Data {
 	for _, data := range clientData {
-		if data.ID == 0 {
-			id, err := s.CreateDataWithEncrypted(data)
-			if err != nil {
-				continue
-			}
-			data.ID = id
+		if data.ID < 0 {
 			result = append(result, data)
 
 			continue
 		}
 
-		//nolint:nestif
-		if serverData, ok := serverDataMap[data.ID]; ok {
-			if data.UpdatedAt.After(serverData.UpdatedAt) {
-				err := s.repo.Update(data)
-				if err != nil {
-					continue
-				}
-				result = append(result, data)
-			} else {
-				result = append(result, serverData)
-			}
-		} else {
-			data.ID = 0
-			id, err := s.CreateDataWithEncrypted(data)
-			if err != nil {
-				continue
-			}
-			data.ID = id
-			result = append(result, data)
+		if data.ID == 0 {
+			result = s.processNewClientData(data, result)
+
+			continue
 		}
+
+		result = s.processExistingClientData(data, serverDataMap, result)
 	}
 
 	return result
+}
+
+func (s *DataService) processNewClientData(data *models.Data, result []*models.Data) []*models.Data {
+	id, err := s.CreateDataWithEncrypted(data)
+	if err != nil {
+		return result
+	}
+
+	data.ID = id
+
+	return append(result, data)
+}
+
+func (s *DataService) processExistingClientData(
+	data *models.Data,
+	serverDataMap map[int64]*models.Data,
+	result []*models.Data,
+) []*models.Data {
+	serverData, exists := serverDataMap[data.ID]
+	if !exists {
+		return s.handleNonExistentServerData(data, result)
+	}
+
+	return s.handleDataConflict(data, serverData, result)
+}
+
+func (s *DataService) handleNonExistentServerData(data *models.Data, result []*models.Data) []*models.Data {
+	data.ID = 0
+	id, err := s.CreateDataWithEncrypted(data)
+	if err != nil {
+		return result
+	}
+
+	data.ID = id
+
+	return append(result, data)
+}
+
+func (s *DataService) handleDataConflict(
+	data *models.Data,
+	serverData *models.Data,
+	result []*models.Data,
+) []*models.Data {
+	if !data.UpdatedAt.After(serverData.UpdatedAt) {
+		return append(result, serverData)
+	}
+
+	err := s.repo.Update(data)
+	if err != nil {
+		return result
+	}
+
+	return append(result, data)
 }
 
 func (s *DataService) addMissingServerData(

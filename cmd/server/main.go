@@ -16,6 +16,8 @@ import (
 	"github.com/gerfey/gophkeeper/pkg/api"
 	"github.com/gerfey/gophkeeper/pkg/config"
 	"github.com/gerfey/gophkeeper/pkg/logger"
+
+	_ "github.com/lib/pq"
 )
 
 const (

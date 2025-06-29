@@ -45,8 +45,7 @@ func NewClient(baseURL string, insecureSkipVerify bool) *Client {
 	httpClient := &http.Client{
 		Timeout: clientTimeoutSeconds * time.Second,
 		Transport: &http.Transport{
-			//nolint:gosec
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: insecureSkipVerify},
+			TLSClientConfig: createTLSConfig(insecureSkipVerify),
 		},
 	}
 
@@ -57,6 +56,18 @@ func NewClient(baseURL string, insecureSkipVerify bool) *Client {
 		httpClient: httpClient,
 		logger:     logger,
 	}
+}
+
+func createTLSConfig(insecureSkipVerify bool) *tls.Config {
+	config := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+
+	if insecureSkipVerify {
+		config.InsecureSkipVerify = true
+	}
+
+	return config
 }
 
 func (c *Client) Register(ctx context.Context, username, password string) error {
