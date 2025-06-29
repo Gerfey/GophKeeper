@@ -11,18 +11,16 @@ import (
 )
 
 var (
-	ErrDataNotFound     = errors.New("данные не найдены")
 	ErrDataAccessDenied = errors.New("доступ к данным запрещен")
 	ErrEncryptionFailed = errors.New("ошибка шифрования данных")
-	ErrDecryptionFailed = errors.New("ошибка расшифровки данных")
 )
 
 type DataRepository interface {
 	CreateData(data *models.Data) (int64, error)
+	GetByID(id, userID int64) (*models.Data, error)
 	GetAll(userID int64) ([]*models.Data, error)
-	GetByID(id int64) (*models.Data, error)
 	Update(data *models.Data) error
-	Delete(id int64) error
+	Delete(id, userID int64) error
 }
 
 type DataService struct {
@@ -39,15 +37,12 @@ func NewDataService(repo DataRepository, logger logger.Logger, encryptionKey []b
 	}
 }
 
-// CreateData создает новые данные
 func (s *DataService) CreateData(data *models.Data) (int64, error) {
-	encryptedData, err := s.encryptData(data)
+	err := s.encryptData(data)
 	if err != nil {
 		return 0, ErrEncryptionFailed
 	}
 
-	data.EncryptedData = encryptedData
-
 	now := time.Now()
 	data.CreatedAt = now
 	data.UpdatedAt = now
@@ -55,9 +50,8 @@ func (s *DataService) CreateData(data *models.Data) (int64, error) {
 	return s.repo.CreateData(data)
 }
 
-// CreateDataWithEncrypted создает новые данные с уже зашифрованным содержимым
 func (s *DataService) CreateDataWithEncrypted(data *models.Data) (int64, error) {
-	if data.EncryptedData == nil || len(data.EncryptedData) == 0 {
+	if len(data.EncryptedData) == 0 {
 		return 0, ErrEncryptionFailed
 	}
 
@@ -68,14 +62,12 @@ func (s *DataService) CreateDataWithEncrypted(data *models.Data) (int64, error) 
 	return s.repo.CreateData(data)
 }
 
-// GetAllData возвращает все данные пользователя
 func (s *DataService) GetAllData(userID int64) ([]*models.Data, error) {
 	return s.repo.GetAll(userID)
 }
 
-// GetDataByID возвращает данные по ID
 func (s *DataService) GetDataByID(id, userID int64) (*models.Data, error) {
-	data, err := s.repo.GetByID(id)
+	data, err := s.repo.GetByID(id, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -87,9 +79,8 @@ func (s *DataService) GetDataByID(id, userID int64) (*models.Data, error) {
 	return data, nil
 }
 
-// UpdateData обновляет данные
 func (s *DataService) UpdateData(data *models.Data) error {
-	existingData, err := s.repo.GetByID(data.ID)
+	existingData, err := s.repo.GetByID(data.ID, data.UserID)
 	if err != nil {
 		return err
 	}
@@ -98,21 +89,18 @@ func (s *DataService) UpdateData(data *models.Data) error {
 		return ErrDataAccessDenied
 	}
 
-	encryptedData, err := s.encryptData(data)
+	err = s.encryptData(data)
 	if err != nil {
 		return ErrEncryptionFailed
 	}
-
-	data.EncryptedData = encryptedData
 
 	data.UpdatedAt = time.Now()
 
 	return s.repo.Update(data)
 }
 
-// DeleteData удаляет данные
 func (s *DataService) DeleteData(id, userID int64) error {
-	existingData, err := s.repo.GetByID(id)
+	existingData, err := s.repo.GetByID(id, userID)
 	if err != nil {
 		return err
 	}
@@ -121,10 +109,9 @@ func (s *DataService) DeleteData(id, userID int64) error {
 		return ErrDataAccessDenied
 	}
 
-	return s.repo.Delete(id)
+	return s.repo.Delete(id, userID)
 }
 
-// SyncData синхронизирует данные между клиентом и сервером
 func (s *DataService) SyncData(userID int64, clientData []*models.Data) ([]*models.Data, error) {
 	serverData, err := s.repo.GetAll(userID)
 	if err != nil {
@@ -136,67 +123,109 @@ func (s *DataService) SyncData(userID int64, clientData []*models.Data) ([]*mode
 		serverDataMap[data.ID] = data
 	}
 
+	clientDataMap := make(map[int64]*models.Data)
 	for _, data := range clientData {
+		if data.ID > 0 {
+			clientDataMap[data.ID] = data
+		}
+	}
+
+	var result []*models.Data
+
+	result = s.processClientData(clientData, serverDataMap, result)
+
+	result = s.addMissingServerData(serverData, clientDataMap, result)
+
+	return result, nil
+}
+
+func (s *DataService) processClientData(
+	clientData []*models.Data,
+	serverDataMap map[int64]*models.Data,
+	result []*models.Data,
+) []*models.Data {
+	for _, data := range clientData {
+		if data.ID == 0 {
+			id, err := s.CreateDataWithEncrypted(data)
+			if err != nil {
+				continue
+			}
+			data.ID = id
+			result = append(result, data)
+
+			continue
+		}
+
+		//nolint:nestif
 		if serverData, ok := serverDataMap[data.ID]; ok {
 			if data.UpdatedAt.After(serverData.UpdatedAt) {
-				data.UserID = userID
-				err := s.UpdateData(data)
+				err := s.repo.Update(data)
 				if err != nil {
-					return nil, err
+					continue
 				}
+				result = append(result, data)
+			} else {
+				result = append(result, serverData)
 			}
 		} else {
-			data.UserID = userID
-			_, err := s.CreateData(data)
+			data.ID = 0
+			id, err := s.CreateDataWithEncrypted(data)
 			if err != nil {
-				return nil, err
+				continue
 			}
+			data.ID = id
+			result = append(result, data)
 		}
 	}
 
-	return s.repo.GetAll(userID)
+	return result
 }
 
-// encryptData шифрует данные
-func (s *DataService) encryptData(data *models.Data) ([]byte, error) {
-	var content interface{}
+func (s *DataService) addMissingServerData(
+	serverData []*models.Data,
+	clientDataMap map[int64]*models.Data,
+	result []*models.Data,
+) []*models.Data {
+	for _, data := range serverData {
+		if _, ok := clientDataMap[data.ID]; !ok {
+			result = append(result, data)
+		}
+	}
+
+	return result
+}
+
+func (s *DataService) encryptData(data *models.Data) error {
+	if data.EncryptedData != nil {
+		// Если данные уже зашифрованы, ничего не делаем
+		return nil
+	}
+
+	var jsonData []byte
+	var err error
 
 	switch data.Type {
-	case models.LoginPassword:
-		content = &models.LoginPasswordData{}
-	case models.TextData:
-		content = &models.TextDataContent{}
-	case models.CardData:
-		content = &models.CardDataContent{}
-	case models.BinaryData:
-		// Для бинарных данных не нужна специальная структура
-		return crypto.Encrypt(data.EncryptedData, s.encryptionKey)
-	default:
-		return nil, errors.New("неизвестный тип данных")
-	}
-
-	jsonData, err := json.Marshal(content)
-	if err != nil {
-		return nil, err
-	}
-
-	return crypto.Encrypt(jsonData, s.encryptionKey)
-}
-
-// decryptData расшифровывает данные
-func (s *DataService) decryptData(data *models.Data, result interface{}) error {
-	decrypted, err := crypto.Decrypt(data.EncryptedData, s.encryptionKey)
-	if err != nil {
-		return ErrDecryptionFailed
-	}
-
-	if data.Type == models.BinaryData {
-		if resultBytes, ok := result.(*[]byte); ok {
-			*resultBytes = decrypted
-			return nil
+	case models.LoginPassword, models.TextData, models.CardData:
+		jsonData, err = json.Marshal(data.Content)
+		if err != nil {
+			return errors.New("ошибка маршалинга данных")
 		}
-		return errors.New("неверный тип результата для бинарных данных")
+	case models.BinaryData:
+		if content, ok := data.Content.([]byte); ok {
+			jsonData = content
+		} else {
+			return errors.New("неверный формат бинарных данных")
+		}
+	default:
+		return errors.New("неизвестный тип данных")
 	}
 
-	return json.Unmarshal(decrypted, result)
+	encryptedData, err := crypto.Encrypt(jsonData, s.encryptionKey)
+	if err != nil {
+		return errors.New("ошибка шифрования данных")
+	}
+
+	data.EncryptedData = encryptedData
+
+	return nil
 }

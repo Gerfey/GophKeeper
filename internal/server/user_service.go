@@ -16,7 +16,7 @@ var (
 )
 
 type UserRepository interface {
-	Create(user *models.User) (int64, error)
+	CreateUser(user *models.User) (int64, error)
 	GetByUsername(username string) (*models.User, error)
 }
 
@@ -32,50 +32,63 @@ func NewUserService(repo UserRepository, logger logger.Logger) *UserService {
 	}
 }
 
-// CreateUser создает нового пользователя
-func (s *UserService) CreateUser(user *models.User) (int64, error) {
-	_, err := s.repo.GetByUsername(user.Username)
-	if err == nil {
-		return 0, ErrUserAlreadyExists
-	}
-	if !errors.Is(err, ErrUserNotFound) {
+func (s *UserService) CreateUser(username string, password string) (int64, error) {
+	existingUser, err := s.repo.GetByUsername(username)
+	if err != nil && !errors.Is(err, ErrUserNotFound) {
 		return 0, err
 	}
+	if existingUser != nil {
+		return 0, ErrUserAlreadyExists
+	}
 
-	hashedPassword, err := crypto.HashPassword(user.Password)
+	hashedPassword, err := crypto.HashPassword(password)
 	if err != nil {
 		return 0, err
 	}
 
-	user.Password = hashedPassword
-
 	now := time.Now()
-	user.CreatedAt = now
-	user.UpdatedAt = now
+	user := &models.User{
+		Username:  username,
+		Password:  hashedPassword,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
 
-	return s.repo.Create(user)
+	return s.repo.CreateUser(user)
 }
 
-// GetUserByUsername возвращает пользователя по имени пользователя
 func (s *UserService) GetUserByUsername(username string) (*models.User, error) {
 	return s.repo.GetByUsername(username)
 }
 
-// VerifyUser проверяет учетные данные пользователя
 func (s *UserService) VerifyUser(creds *models.UserCredentials) (*models.User, error) {
 	user, err := s.repo.GetByUsername(creds.Username)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
 			return nil, ErrInvalidPassword
 		}
+
 		return nil, err
 	}
 
-	valid, err := crypto.VerifyPassword(creds.Password, user.Password)
+	valid := crypto.VerifyPassword(creds.Password, user.Password)
+	if !valid {
+		return nil, ErrInvalidPassword
+	}
+
+	return user, nil
+}
+
+func (s *UserService) CheckCredentials(username string, password string) (*models.User, error) {
+	user, err := s.repo.GetByUsername(username)
 	if err != nil {
 		return nil, err
 	}
+	if user == nil {
+		return nil, ErrUserNotFound
+	}
 
+	valid := crypto.VerifyPassword(password, user.Password)
 	if !valid {
 		return nil, ErrInvalidPassword
 	}

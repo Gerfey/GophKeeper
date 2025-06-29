@@ -4,57 +4,58 @@ import (
 	"errors"
 	"time"
 
-	"github.com/dgrijalva/jwt-go"
+	jwt "github.com/golang-jwt/jwt/v4"
 )
 
 var (
-	ErrInvalidToken = errors.New("неверный токен")
-	ErrExpiredToken = errors.New("токен истек")
+	ErrInvalidToken = errors.New("токен недействителен")
+	ErrExpiredToken = errors.New("срок действия токена истек")
 )
 
-type Claims struct {
+type UserClaims struct {
 	UserID int64 `json:"user_id"`
-	jwt.StandardClaims
+	jwt.RegisteredClaims
 }
 
 type TokenManager interface {
-	GenerateToken(userID int64, ttl time.Duration) (string, error)
-	ValidateToken(tokenString string) (*Claims, error)
+	GenerateToken(userID int64, duration time.Duration) (string, error)
+	ValidateToken(token string) (*UserClaims, error)
+	GetUserID(token string) (int64, error)
 }
 
 type JWTManager struct {
 	signingKey []byte
 }
 
-func NewJWTManager(signingKey string) TokenManager {
+func NewJWTManager(signingKey string) *JWTManager {
 	return &JWTManager{
 		signingKey: []byte(signingKey),
 	}
 }
 
-// GenerateToken создает новый JWT токен для пользователя
-func (m *JWTManager) GenerateToken(userID int64, ttl time.Duration) (string, error) {
-	claims := &Claims{
+func (m *JWTManager) GenerateToken(userID int64, duration time.Duration) (string, error) {
+	payload := &UserClaims{
 		UserID: userID,
-		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: time.Now().Add(ttl).Unix(),
-			IssuedAt:  time.Now().Unix(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, payload)
+
 	return token.SignedString(m.signingKey)
 }
 
-// ValidateToken проверяет и возвращает данные из JWT токена
-func (m *JWTManager) ValidateToken(tokenString string) (*Claims, error) {
+func (m *JWTManager) ValidateToken(tokenStr string) (*UserClaims, error) {
 	token, err := jwt.ParseWithClaims(
-		tokenString,
-		&Claims{},
+		tokenStr,
+		&UserClaims{},
 		func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, ErrInvalidToken
+				return nil, errors.New("неожиданный метод подписи")
 			}
+
 			return m.signingKey, nil
 		},
 	)
@@ -63,17 +64,43 @@ func (m *JWTManager) ValidateToken(tokenString string) (*Claims, error) {
 		if errors.Is(err, jwt.ErrSignatureInvalid) {
 			return nil, ErrInvalidToken
 		}
+
 		return nil, err
 	}
 
-	claims, ok := token.Claims.(*Claims)
-	if !ok || !token.Valid {
+	claims, ok := token.Claims.(*UserClaims)
+	if !ok {
 		return nil, ErrInvalidToken
 	}
 
-	if claims.ExpiresAt < time.Now().Unix() {
+	if claims.ExpiresAt.Before(time.Now()) {
 		return nil, ErrExpiredToken
 	}
 
 	return claims, nil
+}
+
+func (m *JWTManager) GetUserID(tokenStr string) (int64, error) {
+	token, err := jwt.ParseWithClaims(
+		tokenStr,
+		&UserClaims{},
+		func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, errors.New("неожиданный метод подписи")
+			}
+
+			return m.signingKey, nil
+		},
+	)
+
+	if err != nil {
+		return 0, err
+	}
+
+	claims, ok := token.Claims.(*UserClaims)
+	if !ok {
+		return 0, errors.New("неверные JWT claims")
+	}
+
+	return claims.UserID, nil
 }

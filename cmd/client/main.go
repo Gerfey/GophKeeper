@@ -8,13 +8,7 @@ import (
 	"github.com/gerfey/gophkeeper/internal/client"
 )
 
-var (
-	version = "v1.0.0"
-)
-
 func main() {
-	client.Version = version
-
 	configPath := getConfigPath()
 
 	runTUI(configPath)
@@ -22,7 +16,9 @@ func main() {
 
 func runTUI(configPath string) {
 	if os.Getenv("TERM") == "" {
-		os.Setenv("TERM", "xterm-256color")
+		if err := os.Setenv("TERM", "xterm-256color"); err != nil {
+			fmt.Fprintf(os.Stderr, "Ошибка установки переменной окружения TERM: %v\n", err)
+		}
 	}
 
 	tui, err := client.NewTUI(configPath)
@@ -31,8 +27,8 @@ func runTUI(configPath string) {
 		os.Exit(1)
 	}
 
-	if err := tui.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Ошибка запуска TUI: %v\n", err)
+	if runErr := tui.Run(); runErr != nil {
+		fmt.Fprintf(os.Stderr, "Ошибка запуска TUI: %v\n", runErr)
 		os.Exit(1)
 	}
 }

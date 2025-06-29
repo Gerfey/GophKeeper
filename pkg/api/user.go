@@ -8,67 +8,62 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	DefaultTokenDuration = 24 * time.Hour
+)
+
 type UserService interface {
-	CreateUser(user *models.User) (int64, error)
+	CreateUser(username string, password string) (int64, error)
 	GetUserByUsername(username string) (*models.User, error)
+	CheckCredentials(username string, password string) (*models.User, error)
 }
 
-// register обрабатывает запрос на регистрацию пользователя
 func (h *Handler) register(c *gin.Context) {
-	var user models.User
+	var req models.RegisterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 
-	if err := c.BindJSON(&user); err != nil {
-		h.logger.Error("Ошибка при парсинге запроса: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "неверный формат запроса"})
 		return
 	}
 
-	userID, err := h.userService.CreateUser(&user)
+	userID, err := h.userService.CreateUser(req.Username, req.Password)
 	if err != nil {
-		h.logger.Error("Ошибка при создании пользователя: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при создании пользователя"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+
 		return
 	}
 
-	token, err := h.tokenManager.GenerateToken(userID, 24*time.Hour)
+	token, err := h.tokenManager.GenerateToken(userID, DefaultTokenDuration)
 	if err != nil {
-		h.logger.Error("Ошибка при генерации токена: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при генерации токена"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"user":  user.ToUserResponse(),
-		"token": token,
-	})
+	c.JSON(http.StatusCreated, gin.H{"token": token})
 }
 
-// login обрабатывает запрос на аутентификацию пользователя
 func (h *Handler) login(c *gin.Context) {
-	var creds models.UserCredentials
+	var req models.LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 
-	if err := c.BindJSON(&creds); err != nil {
-		h.logger.Error("Ошибка при парсинге запроса: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "неверный формат запроса"})
 		return
 	}
 
-	user, err := h.userService.GetUserByUsername(creds.Username)
+	user, err := h.userService.CheckCredentials(req.Username, req.Password)
 	if err != nil {
-		h.logger.Error("Ошибка при получении пользователя: %v", err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "неверное имя пользователя или пароль"})
+
 		return
 	}
 
-	token, err := h.tokenManager.GenerateToken(user.ID, 24*time.Hour)
+	token, err := h.tokenManager.GenerateToken(user.ID, DefaultTokenDuration)
 	if err != nil {
-		h.logger.Error("Ошибка при генерации токена: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при генерации токена"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"user":  user.ToUserResponse(),
-		"token": token,
-	})
+	c.JSON(http.StatusOK, gin.H{"token": token})
 }

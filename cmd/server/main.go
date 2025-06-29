@@ -18,32 +18,38 @@ import (
 	"github.com/gerfey/gophkeeper/pkg/logger"
 )
 
-var (
-	Version = "v1.0.0"
+const (
+	version = "v1.0.0"
+
+	shutdownTimeoutSec = 5
 )
 
 func main() {
 	log := logger.DefaultLogger()
-	log.Info("Запуск сервера GophKeeper версии %s", Version)
+	log.Infof("Запуск сервера GophKeeper версии %s", version)
 
 	cfg, err := config.LoadConfig(".")
 	if err != nil {
-		log.Fatal("Ошибка загрузки конфигурации: %v", err)
+		log.Fatalf("Ошибка загрузки конфигурации: %v", err)
 	}
 
 	repo, err := server.NewPostgresRepository(cfg.Database.GetDSN(), log)
 	if err != nil {
-		log.Fatal("Ошибка подключения к базе данных: %v", err)
+		log.Fatalf("Ошибка подключения к базе данных: %v", err)
 	}
 	defer repo.Close()
 
-	if err := repo.InitSchema(); err != nil {
-		log.Fatal("Ошибка инициализации схемы базы данных: %v", err)
+	if initErr := repo.InitSchema(); initErr != nil {
+		log.Errorf("Ошибка инициализации схемы базы данных: %v", initErr)
+
+		return
 	}
 
-	encryptionKey := make([]byte, 32)
-	if _, err := rand.Read(encryptionKey); err != nil {
-		log.Fatal("Ошибка генерации ключа шифрования: %v", err)
+	encryptionKey := make([]byte, cfg.Encryption.KeySize)
+	if _, randErr := rand.Read(encryptionKey); randErr != nil {
+		log.Errorf("Ошибка генерации ключа шифрования: %v", randErr)
+
+		return
 	}
 
 	tokenManager := auth.NewJWTManager(cfg.Auth.JWTSecret)
@@ -61,19 +67,19 @@ func main() {
 	}
 
 	go func() {
-		log.Info("Сервер запущен на %s", srv.Addr)
-		var err error
+		log.Infof("Сервер запущен на %s", srv.Addr)
+		var serverErr error
 
 		if cfg.Server.TLSCertFile != "" && cfg.Server.TLSKeyFile != "" {
-			log.Info("Используются сертификаты из файлов: %s, %s", cfg.Server.TLSCertFile, cfg.Server.TLSKeyFile)
-			err = srv.ListenAndServeTLS(cfg.Server.TLSCertFile, cfg.Server.TLSKeyFile)
+			log.Infof("Используются сертификаты из файлов: %s, %s", cfg.Server.TLSCertFile, cfg.Server.TLSKeyFile)
+			serverErr = srv.ListenAndServeTLS(cfg.Server.TLSCertFile, cfg.Server.TLSKeyFile)
 		} else {
-			log.Warn("TLS не настроен, сервер запущен без шифрования")
-			err = srv.ListenAndServe()
+			log.Warnf("TLS не настроен, сервер запущен без шифрования")
+			serverErr = srv.ListenAndServe()
 		}
 
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal("Ошибка запуска сервера: %v", err)
+		if serverErr != nil && !errors.Is(serverErr, http.ErrServerClosed) {
+			log.Fatalf("Ошибка запуска сервера: %v", serverErr)
 		}
 	}()
 
@@ -81,13 +87,13 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Info("Завершение работы сервера...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	log.Infof("Завершение работы сервера...")
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeoutSec*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Error("Ошибка при завершении работы сервера: %v", err)
+	if shutdownErr := srv.Shutdown(ctx); shutdownErr != nil {
+		log.Errorf("Ошибка при завершении работы сервера: %v", shutdownErr)
 	}
 
-	log.Info("Сервер остановлен")
+	log.Infof("Сервер остановлен")
 }

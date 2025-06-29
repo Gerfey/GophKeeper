@@ -4,12 +4,20 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"io"
 
 	"golang.org/x/crypto/argon2"
+)
+
+const (
+	KeyLength   = 32
+	SaltLength  = 16
+	Memory      = 64 * 1024
+	Iterations  = 1
+	Parallelism = 4
 )
 
 var (
@@ -18,14 +26,12 @@ var (
 	ErrInvalidData      = errors.New("неверные данные")
 )
 
-// GenerateKey генерирует ключ шифрования на основе пароля пользователя
 func GenerateKey(password, salt []byte) []byte {
-	return argon2.IDKey(password, salt, 1, 64*1024, 4, 32)
+	return argon2.IDKey(password, salt, Iterations, Memory, Parallelism, KeyLength)
 }
 
-// Encrypt шифрует данные с использованием AES-256-GCM
-func Encrypt(data []byte, key []byte) ([]byte, error) {
-	if len(key) != 32 {
+func Encrypt(plaintext []byte, key []byte) ([]byte, error) {
+	if len(key) != KeyLength {
 		return nil, ErrInvalidKeyLength
 	}
 
@@ -44,13 +50,13 @@ func Encrypt(data []byte, key []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	ciphertext := gcm.Seal(nonce, nonce, data, nil)
+	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
+
 	return ciphertext, nil
 }
 
-// Decrypt расшифровывает данные с использованием AES-256-GCM
-func Decrypt(encryptedData []byte, key []byte) ([]byte, error) {
-	if len(key) != 32 {
+func Decrypt(ciphertext []byte, key []byte) ([]byte, error) {
+	if len(key) != KeyLength {
 		return nil, ErrInvalidKeyLength
 	}
 
@@ -64,11 +70,12 @@ func Decrypt(encryptedData []byte, key []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if len(encryptedData) < gcm.NonceSize() {
+	if len(ciphertext) < gcm.NonceSize() {
 		return nil, ErrDataTooShort
 	}
 
-	nonce, ciphertext := encryptedData[:gcm.NonceSize()], encryptedData[gcm.NonceSize():]
+	nonce, ciphertext := ciphertext[:gcm.NonceSize()], ciphertext[gcm.NonceSize():]
+
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
 		return nil, ErrInvalidData
@@ -77,41 +84,42 @@ func Decrypt(encryptedData []byte, key []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
-// GenerateSalt создает случайную соль для хеширования
 func GenerateSalt() ([]byte, error) {
-	salt := make([]byte, 16)
-	_, err := io.ReadFull(rand.Reader, salt)
+	salt := make([]byte, SaltLength)
+	_, err := rand.Read(salt)
+
 	return salt, err
 }
 
-// HashPassword хеширует пароль с использованием Argon2id
 func HashPassword(password string) (string, error) {
 	salt, err := GenerateSalt()
 	if err != nil {
 		return "", err
 	}
 
-	hash := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
+	hash := argon2.IDKey([]byte(password), salt, Iterations, Memory, Parallelism, KeyLength)
 
-	saltAndHash := append(salt, hash...)
+	saltAndHash := make([]byte, 0, len(salt)+len(hash))
+	saltAndHash = append(saltAndHash, salt...)
+	saltAndHash = append(saltAndHash, hash...)
+
 	return base64.StdEncoding.EncodeToString(saltAndHash), nil
 }
 
-// VerifyPassword проверяет соответствие пароля хешу
-func VerifyPassword(password, encodedHash string) (bool, error) {
+func VerifyPassword(password, encodedHash string) bool {
 	saltAndHash, err := base64.StdEncoding.DecodeString(encodedHash)
 	if err != nil {
-		return false, err
+		return false
 	}
 
-	if len(saltAndHash) < 16+32 {
-		return false, ErrInvalidData
+	if len(saltAndHash) < SaltLength {
+		return false
 	}
 
-	salt := saltAndHash[:16]
-	storedHash := saltAndHash[16:]
+	salt := saltAndHash[:SaltLength]
+	storedHash := saltAndHash[SaltLength:]
 
-	hash := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
+	hash := argon2.IDKey([]byte(password), salt, Iterations, Memory, Parallelism, KeyLength)
 
-	return sha256.Sum256(hash) == sha256.Sum256(storedHash), nil
+	return subtle.ConstantTimeCompare(hash, storedHash) == 1
 }

@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
+	"path/filepath"
 	"runtime"
 	"time"
 )
 
-// Level представляет уровень логирования
 type Level int
 
 const (
@@ -20,7 +19,6 @@ const (
 	LevelFatal
 )
 
-// String возвращает строковое представление уровня логирования
 func (l Level) String() string {
 	switch l {
 	case LevelDebug:
@@ -39,11 +37,11 @@ func (l Level) String() string {
 }
 
 type Logger interface {
-	Debug(format string, args ...interface{})
-	Info(format string, args ...interface{})
-	Warn(format string, args ...interface{})
-	Error(format string, args ...interface{})
-	Fatal(format string, args ...interface{})
+	Debugf(format string, args ...interface{})
+	Infof(format string, args ...interface{})
+	Warnf(format string, args ...interface{})
+	Errorf(format string, args ...interface{})
+	Fatalf(format string, args ...interface{})
 }
 
 type logger struct {
@@ -51,6 +49,10 @@ type logger struct {
 	level  Level
 	prefix string
 }
+
+const (
+	CallerSkipFrames = 2
+)
 
 func NewLogger(out io.Writer, level Level, prefix string) Logger {
 	return &logger{
@@ -60,57 +62,50 @@ func NewLogger(out io.Writer, level Level, prefix string) Logger {
 	}
 }
 
-// Debug логирует сообщение с уровнем Debug
-func (l *logger) Debug(format string, args ...interface{}) {
-	l.log(LevelDebug, format, args...)
+func (l *logger) Debugf(format string, args ...interface{}) {
+	l.logf(LevelDebug, format, args...)
 }
 
-// Info логирует сообщение с уровнем Info
-func (l *logger) Info(format string, args ...interface{}) {
-	l.log(LevelInfo, format, args...)
+func (l *logger) Infof(format string, args ...interface{}) {
+	l.logf(LevelInfo, format, args...)
 }
 
-// Warn логирует сообщение с уровнем Warn
-func (l *logger) Warn(format string, args ...interface{}) {
-	l.log(LevelWarn, format, args...)
+func (l *logger) Warnf(format string, args ...interface{}) {
+	l.logf(LevelWarn, format, args...)
 }
 
-// Error логирует сообщение с уровнем Error
-func (l *logger) Error(format string, args ...interface{}) {
-	l.log(LevelError, format, args...)
+func (l *logger) Errorf(format string, args ...interface{}) {
+	l.logf(LevelError, format, args...)
 }
 
-// Fatal логирует сообщение с уровнем Fatal и завершает программу
-func (l *logger) Fatal(format string, args ...interface{}) {
-	l.log(LevelFatal, format, args...)
+func (l *logger) Fatalf(format string, args ...interface{}) {
+	l.logf(LevelFatal, format, args...)
 	os.Exit(1)
 }
 
-// DefaultLogger возвращает логгер по умолчанию
 func DefaultLogger() Logger {
 	return NewLogger(os.Stdout, LevelInfo, "GophKeeper")
 }
 
-func (l *logger) log(level Level, format string, args ...interface{}) {
+func (l *logger) logf(level Level, format string, args ...interface{}) {
 	if level < l.level {
 		return
 	}
 
-	_, file, line, ok := runtime.Caller(2)
+	_, file, line, ok := runtime.Caller(CallerSkipFrames)
 	if !ok {
 		file = "???"
 		line = 0
 	}
 
 	msg := fmt.Sprintf(
-		"%s [%s] %s:%d %s: %s\n",
+		"%s [%s] %s:%d: %s\n",
 		time.Now().Format("2006-01-02 15:04:05"),
 		level.String(),
-		path.Base(file),
+		filepath.Base(file),
 		line,
-		l.prefix,
 		fmt.Sprintf(format, args...),
 	)
 
-	fmt.Fprint(l.out, msg)
+	_, _ = fmt.Fprint(l.out, msg)
 }

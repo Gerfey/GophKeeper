@@ -3,9 +3,9 @@ module github.com/gerfey/gophkeeper
 go 1.24.3
 
 require (
-	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/gdamore/tcell/v2 v2.8.1
 	github.com/gin-gonic/gin v1.9.1
+	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.10.9
 	github.com/rivo/tview v0.0.0-20250625164341-a4a78f1e05cb

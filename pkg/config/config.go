@@ -9,14 +9,17 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Config представляет конфигурацию приложения
+const (
+	DefaultJWTExpirationHours = 24
+)
+
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Auth     AuthConfig
+	Server     ServerConfig
+	Database   DatabaseConfig
+	Auth       AuthConfig
+	Encryption EncryptionConfig
 }
 
-// ServerConfig представляет конфигурацию сервера
 type ServerConfig struct {
 	Host         string
 	Port         string
@@ -26,7 +29,10 @@ type ServerConfig struct {
 	TLSKeyFile   string
 }
 
-// DatabaseConfig представляет конфигурацию базы данных
+type EncryptionConfig struct {
+	KeySize int
+}
+
 type DatabaseConfig struct {
 	Driver   string
 	Host     string
@@ -37,7 +43,6 @@ type DatabaseConfig struct {
 	SSLMode  string
 }
 
-// AuthConfig представляет конфигурацию аутентификации
 type AuthConfig struct {
 	JWTSecret        string
 	JWTExpirationHrs int
@@ -46,7 +51,7 @@ type AuthConfig struct {
 func LoadConfig(path string) (*Config, error) {
 	_ = godotenv.Load()
 
-	viper.SetDefault("server.host", "0.0.0.0")
+	viper.SetDefault("server.host", "localhost")
 	viper.SetDefault("server.port", "8080")
 	viper.SetDefault("server.read_timeout", "10s")
 	viper.SetDefault("server.write_timeout", "10s")
@@ -56,7 +61,8 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetDefault("database.port", "5432")
 	viper.SetDefault("database.sslmode", "disable")
 
-	viper.SetDefault("auth.jwt_expiration_hrs", 24)
+	viper.SetDefault("auth.jwt_signing_key", "supersecretkey")
+	viper.SetDefault("auth.jwt_expiration_hrs", DefaultJWTExpirationHours)
 
 	viper.AddConfigPath(path)
 	viper.SetConfigName("config")
@@ -103,14 +109,17 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	config.Auth = AuthConfig{
-		JWTSecret:        viper.GetString("auth.jwt_secret"),
+		JWTSecret:        viper.GetString("auth.jwt_signing_key"),
 		JWTExpirationHrs: viper.GetInt("auth.jwt_expiration_hrs"),
+	}
+
+	config.Encryption = EncryptionConfig{
+		KeySize: viper.GetInt("encryption.key_size"),
 	}
 
 	return &config, nil
 }
 
-// GetDSN возвращает строку подключения к базе данных
 func (c *DatabaseConfig) GetDSN() string {
 	return fmt.Sprintf("%s://%s:%s@%s:%s/%s?sslmode=%s",
 		c.Driver, c.Username, c.Password, c.Host, c.Port, c.DBName, c.SSLMode)

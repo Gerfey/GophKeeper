@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gerfey/gophkeeper/internal/auth"
 	"github.com/gerfey/gophkeeper/pkg/logger"
@@ -15,7 +16,12 @@ type Handler struct {
 	logger       logger.Logger
 }
 
-func NewHandler(tokenManager auth.TokenManager, userService UserService, dataService DataService, logger logger.Logger) *Handler {
+func NewHandler(
+	tokenManager auth.TokenManager,
+	userService UserService,
+	dataService DataService,
+	logger logger.Logger,
+) *Handler {
 	return &Handler{
 		tokenManager: tokenManager,
 		userService:  userService,
@@ -59,9 +65,9 @@ func (h *Handler) InitRoutes() *gin.Engine {
 
 func (h *Handler) loggerMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h.logger.Info("Request: %s %s", c.Request.Method, c.Request.URL.Path)
+		h.logger.Infof("Request: %s %s", c.Request.Method, c.Request.URL.Path)
 		c.Next()
-		h.logger.Info("Response: %d", c.Writer.Status())
+		h.logger.Infof("Response: %d", c.Writer.Status())
 	}
 }
 
@@ -70,12 +76,19 @@ func (h *Handler) authMiddleware() gin.HandlerFunc {
 		header := c.GetHeader("Authorization")
 		if header == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "отсутствует токен авторизации"})
+
 			return
+		}
+
+		const bearerPrefix = "Bearer "
+		if len(header) > len(bearerPrefix) && strings.HasPrefix(header, bearerPrefix) {
+			header = header[len(bearerPrefix):]
 		}
 
 		claims, err := h.tokenManager.ValidateToken(header)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+
 			return
 		}
 
@@ -91,5 +104,6 @@ func getUserID(c *gin.Context) (int64, bool) {
 	}
 
 	id, ok := userID.(int64)
+
 	return id, ok
 }
