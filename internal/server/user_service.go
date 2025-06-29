@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -11,13 +12,12 @@ import (
 
 var (
 	ErrUserAlreadyExists = errors.New("пользователь уже существует")
-	ErrUserNotFound      = errors.New("пользователь не найден")
 	ErrInvalidPassword   = errors.New("неверный пароль")
 )
 
 type UserRepository interface {
-	CreateUser(user *models.User) (int64, error)
-	GetByUsername(username string) (*models.User, error)
+	CreateUser(ctx context.Context, user *models.User) (int64, error)
+	GetByUsername(ctx context.Context, username string) (*models.User, error)
 }
 
 type UserService struct {
@@ -32,8 +32,8 @@ func NewUserService(repo UserRepository, logger logger.Logger) *UserService {
 	}
 }
 
-func (s *UserService) CreateUser(username string, password string) (int64, error) {
-	existingUser, err := s.repo.GetByUsername(username)
+func (s *UserService) CreateUser(ctx context.Context, username string, password string) (int64, error) {
+	existingUser, err := s.repo.GetByUsername(ctx, username)
 	if err != nil && !errors.Is(err, ErrUserNotFound) {
 		return 0, err
 	}
@@ -54,15 +54,15 @@ func (s *UserService) CreateUser(username string, password string) (int64, error
 		UpdatedAt: now,
 	}
 
-	return s.repo.CreateUser(user)
+	return s.repo.CreateUser(ctx, user)
 }
 
-func (s *UserService) GetUserByUsername(username string) (*models.User, error) {
-	return s.repo.GetByUsername(username)
+func (s *UserService) GetUserByUsername(ctx context.Context, username string) (*models.User, error) {
+	return s.repo.GetByUsername(ctx, username)
 }
 
-func (s *UserService) VerifyUser(creds *models.UserCredentials) (*models.User, error) {
-	user, err := s.repo.GetByUsername(creds.Username)
+func (s *UserService) VerifyUser(ctx context.Context, creds *models.UserCredentials) (*models.User, error) {
+	user, err := s.repo.GetByUsername(ctx, creds.Username)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
 			return nil, ErrInvalidPassword
@@ -79,8 +79,8 @@ func (s *UserService) VerifyUser(creds *models.UserCredentials) (*models.User, e
 	return user, nil
 }
 
-func (s *UserService) CheckCredentials(username string, password string) (*models.User, error) {
-	user, err := s.repo.GetByUsername(username)
+func (s *UserService) CheckCredentials(ctx context.Context, username string, password string) (*models.User, error) {
+	user, err := s.repo.GetByUsername(ctx, username)
 	if err != nil {
 		return nil, err
 	}

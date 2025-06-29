@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"time"
@@ -16,11 +17,11 @@ var (
 )
 
 type DataRepository interface {
-	CreateData(data *models.Data) (int64, error)
-	GetByID(id, userID int64) (*models.Data, error)
-	GetAll(userID int64) ([]*models.Data, error)
-	Update(data *models.Data) error
-	Delete(id, userID int64) error
+	CreateData(ctx context.Context, data *models.Data) (int64, error)
+	GetByID(ctx context.Context, id, userID int64) (*models.Data, error)
+	GetAll(ctx context.Context, userID int64) ([]*models.Data, error)
+	Update(ctx context.Context, data *models.Data) error
+	Delete(ctx context.Context, id, userID int64) error
 }
 
 type DataService struct {
@@ -37,7 +38,7 @@ func NewDataService(repo DataRepository, logger logger.Logger, encryptionKey []b
 	}
 }
 
-func (s *DataService) CreateData(data *models.Data) (int64, error) {
+func (s *DataService) CreateData(ctx context.Context, data *models.Data) (int64, error) {
 	err := s.encryptData(data)
 	if err != nil {
 		return 0, ErrEncryptionFailed
@@ -47,10 +48,10 @@ func (s *DataService) CreateData(data *models.Data) (int64, error) {
 	data.CreatedAt = now
 	data.UpdatedAt = now
 
-	return s.repo.CreateData(data)
+	return s.repo.CreateData(ctx, data)
 }
 
-func (s *DataService) CreateDataWithEncrypted(data *models.Data) (int64, error) {
+func (s *DataService) CreateDataWithEncrypted(ctx context.Context, data *models.Data) (int64, error) {
 	if len(data.EncryptedData) == 0 {
 		return 0, ErrEncryptionFailed
 	}
@@ -59,15 +60,15 @@ func (s *DataService) CreateDataWithEncrypted(data *models.Data) (int64, error) 
 	data.CreatedAt = now
 	data.UpdatedAt = now
 
-	return s.repo.CreateData(data)
+	return s.repo.CreateData(ctx, data)
 }
 
-func (s *DataService) GetAllData(userID int64) ([]*models.Data, error) {
-	return s.repo.GetAll(userID)
+func (s *DataService) GetAllData(ctx context.Context, userID int64) ([]*models.Data, error) {
+	return s.repo.GetAll(ctx, userID)
 }
 
-func (s *DataService) GetDataByID(id, userID int64) (*models.Data, error) {
-	data, err := s.repo.GetByID(id, userID)
+func (s *DataService) GetDataByID(ctx context.Context, id, userID int64) (*models.Data, error) {
+	data, err := s.repo.GetByID(ctx, id, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -79,8 +80,8 @@ func (s *DataService) GetDataByID(id, userID int64) (*models.Data, error) {
 	return data, nil
 }
 
-func (s *DataService) UpdateData(data *models.Data) error {
-	existingData, err := s.repo.GetByID(data.ID, data.UserID)
+func (s *DataService) UpdateData(ctx context.Context, data *models.Data) error {
+	existingData, err := s.repo.GetByID(ctx, data.ID, data.UserID)
 	if err != nil {
 		return err
 	}
@@ -94,13 +95,21 @@ func (s *DataService) UpdateData(data *models.Data) error {
 		return ErrEncryptionFailed
 	}
 
+	if data.Type == "" {
+		data.Type = existingData.Type
+	}
+
+	if data.Name == "" {
+		data.Name = existingData.Name
+	}
+
 	data.UpdatedAt = time.Now()
 
-	return s.repo.Update(data)
+	return s.repo.Update(ctx, data)
 }
 
-func (s *DataService) DeleteData(id, userID int64) error {
-	existingData, err := s.repo.GetByID(id, userID)
+func (s *DataService) DeleteData(ctx context.Context, id, userID int64) error {
+	existingData, err := s.repo.GetByID(ctx, id, userID)
 	if err != nil {
 		return err
 	}
@@ -109,11 +118,11 @@ func (s *DataService) DeleteData(id, userID int64) error {
 		return ErrDataAccessDenied
 	}
 
-	return s.repo.Delete(id, userID)
+	return s.repo.Delete(ctx, id, userID)
 }
 
-func (s *DataService) SyncData(userID int64, clientData []*models.Data) ([]*models.Data, error) {
-	serverData, err := s.repo.GetAll(userID)
+func (s *DataService) SyncData(ctx context.Context, userID int64, clientData []*models.Data) ([]*models.Data, error) {
+	serverData, err := s.repo.GetAll(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +141,7 @@ func (s *DataService) SyncData(userID int64, clientData []*models.Data) ([]*mode
 
 	var result []*models.Data
 
-	result = s.processClientData(clientData, serverDataMap, result)
+	result = s.processClientData(ctx, clientData, serverDataMap, result)
 
 	result = s.addMissingServerData(serverData, clientDataMap, result)
 
@@ -140,6 +149,7 @@ func (s *DataService) SyncData(userID int64, clientData []*models.Data) ([]*mode
 }
 
 func (s *DataService) processClientData(
+	ctx context.Context,
 	clientData []*models.Data,
 	serverDataMap map[int64]*models.Data,
 	result []*models.Data,
@@ -152,19 +162,23 @@ func (s *DataService) processClientData(
 		}
 
 		if data.ID == 0 {
-			result = s.processNewClientData(data, result)
+			result = s.processNewClientData(ctx, data, result)
 
 			continue
 		}
 
-		result = s.processExistingClientData(data, serverDataMap, result)
+		result = s.processExistingClientData(ctx, data, serverDataMap, result)
 	}
 
 	return result
 }
 
-func (s *DataService) processNewClientData(data *models.Data, result []*models.Data) []*models.Data {
-	id, err := s.CreateDataWithEncrypted(data)
+func (s *DataService) processNewClientData(
+	ctx context.Context,
+	data *models.Data,
+	result []*models.Data,
+) []*models.Data {
+	id, err := s.CreateDataWithEncrypted(ctx, data)
 	if err != nil {
 		return result
 	}
@@ -175,21 +189,26 @@ func (s *DataService) processNewClientData(data *models.Data, result []*models.D
 }
 
 func (s *DataService) processExistingClientData(
+	ctx context.Context,
 	data *models.Data,
 	serverDataMap map[int64]*models.Data,
 	result []*models.Data,
 ) []*models.Data {
 	serverData, exists := serverDataMap[data.ID]
 	if !exists {
-		return s.handleNonExistentServerData(data, result)
+		return s.handleNonExistentServerData(ctx, data, result)
 	}
 
-	return s.handleDataConflict(data, serverData, result)
+	return s.handleDataConflict(ctx, data, serverData, result)
 }
 
-func (s *DataService) handleNonExistentServerData(data *models.Data, result []*models.Data) []*models.Data {
+func (s *DataService) handleNonExistentServerData(
+	ctx context.Context,
+	data *models.Data,
+	result []*models.Data,
+) []*models.Data {
 	data.ID = 0
-	id, err := s.CreateDataWithEncrypted(data)
+	id, err := s.CreateDataWithEncrypted(ctx, data)
 	if err != nil {
 		return result
 	}
@@ -200,6 +219,7 @@ func (s *DataService) handleNonExistentServerData(data *models.Data, result []*m
 }
 
 func (s *DataService) handleDataConflict(
+	ctx context.Context,
 	data *models.Data,
 	serverData *models.Data,
 	result []*models.Data,
@@ -208,7 +228,7 @@ func (s *DataService) handleDataConflict(
 		return append(result, serverData)
 	}
 
-	err := s.repo.Update(data)
+	err := s.repo.Update(ctx, data)
 	if err != nil {
 		return result
 	}
@@ -232,7 +252,6 @@ func (s *DataService) addMissingServerData(
 
 func (s *DataService) encryptData(data *models.Data) error {
 	if data.EncryptedData != nil {
-		// Если данные уже зашифрованы, ничего не делаем
 		return nil
 	}
 
@@ -243,7 +262,7 @@ func (s *DataService) encryptData(data *models.Data) error {
 	case models.LoginPassword, models.TextData, models.CardData:
 		jsonData, err = json.Marshal(data.Content)
 		if err != nil {
-			return errors.New("ошибка маршалинга данных")
+			return err
 		}
 	case models.BinaryData:
 		if content, ok := data.Content.([]byte); ok {
@@ -257,10 +276,11 @@ func (s *DataService) encryptData(data *models.Data) error {
 
 	encryptedData, err := crypto.Encrypt(jsonData, s.encryptionKey)
 	if err != nil {
-		return errors.New("ошибка шифрования данных")
+		return ErrEncryptionFailed
 	}
 
 	data.EncryptedData = encryptedData
+	data.Content = nil
 
 	return nil
 }

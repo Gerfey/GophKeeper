@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -9,13 +10,13 @@ import (
 )
 
 type DataService interface {
-	CreateData(data *models.Data) (int64, error)
-	GetAllData(userID int64) ([]*models.Data, error)
-	GetDataByID(id, userID int64) (*models.Data, error)
-	UpdateData(data *models.Data) error
-	DeleteData(id, userID int64) error
-	SyncData(userID int64, data []*models.Data) ([]*models.Data, error)
-	CreateDataWithEncrypted(data *models.Data) (int64, error)
+	CreateData(ctx context.Context, data *models.Data) (int64, error)
+	GetAllData(ctx context.Context, userID int64) ([]*models.Data, error)
+	GetDataByID(ctx context.Context, id, userID int64) (*models.Data, error)
+	UpdateData(ctx context.Context, data *models.Data) error
+	DeleteData(ctx context.Context, id, userID int64) error
+	SyncData(ctx context.Context, userID int64, data []*models.Data) ([]*models.Data, error)
+	CreateDataWithEncrypted(ctx context.Context, data *models.Data) (int64, error)
 }
 
 func (h *Handler) createData(c *gin.Context) {
@@ -46,7 +47,7 @@ func (h *Handler) createData(c *gin.Context) {
 	case len(req.EncryptedData) > 0:
 		data.EncryptedData = req.EncryptedData
 
-		dataID, err := h.dataService.CreateDataWithEncrypted(data)
+		dataID, err := h.dataService.CreateDataWithEncrypted(c.Request.Context(), data)
 		if err != nil {
 			h.logger.Errorf("Ошибка при создании данных: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при создании данных"})
@@ -58,7 +59,7 @@ func (h *Handler) createData(c *gin.Context) {
 
 		c.JSON(http.StatusCreated, data.ToDataResponse())
 	case req.Content != nil:
-		dataID, err := h.dataService.CreateData(data)
+		dataID, err := h.dataService.CreateData(c.Request.Context(), data)
 		if err != nil {
 			h.logger.Errorf("Ошибка при создании данных: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при создании данных"})
@@ -83,7 +84,7 @@ func (h *Handler) getAllData(c *gin.Context) {
 		return
 	}
 
-	data, err := h.dataService.GetAllData(userID)
+	data, err := h.dataService.GetAllData(c.Request.Context(), userID)
 	if err != nil {
 		h.logger.Errorf("Ошибка при получении данных: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при получении данных"})
@@ -107,18 +108,19 @@ func (h *Handler) getData(c *gin.Context) {
 		return
 	}
 
-	dataID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		h.logger.Errorf("Ошибка при парсинге ID данных: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "неверный ID данных"})
+		h.logger.Errorf("Неверный формат ID: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "неверный формат ID"})
 
 		return
 	}
 
-	data, err := h.dataService.GetDataByID(dataID, userID)
+	data, err := h.dataService.GetDataByID(c.Request.Context(), id, userID)
 	if err != nil {
 		h.logger.Errorf("Ошибка при получении данных: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": "данные не найдены"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при получении данных"})
 
 		return
 	}
@@ -142,7 +144,7 @@ func (h *Handler) getEncryptedData(c *gin.Context) {
 		return
 	}
 
-	data, err := h.dataService.GetDataByID(dataID, userID)
+	data, err := h.dataService.GetDataByID(c.Request.Context(), dataID, userID)
 	if err != nil {
 		h.logger.Errorf("Ошибка при получении данных: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "данные не найдены"})
@@ -178,7 +180,7 @@ func (h *Handler) updateData(c *gin.Context) {
 		return
 	}
 
-	_, err = h.dataService.GetDataByID(dataID, userID)
+	_, err = h.dataService.GetDataByID(c.Request.Context(), dataID, userID)
 	if err != nil {
 		h.logger.Errorf("Ошибка при получении данных: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "данные не найдены"})
@@ -194,7 +196,7 @@ func (h *Handler) updateData(c *gin.Context) {
 		Metadata: req.Metadata,
 	}
 
-	err = h.dataService.UpdateData(data)
+	err = h.dataService.UpdateData(c.Request.Context(), data)
 	if err != nil {
 		h.logger.Errorf("Ошибка при обновлении данных: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при обновлении данных"})
@@ -221,7 +223,7 @@ func (h *Handler) deleteData(c *gin.Context) {
 		return
 	}
 
-	err = h.dataService.DeleteData(dataID, userID)
+	err = h.dataService.DeleteData(c.Request.Context(), dataID, userID)
 	if err != nil {
 		h.logger.Errorf("Ошибка при удалении данных: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при удалении данных"})
@@ -233,8 +235,6 @@ func (h *Handler) deleteData(c *gin.Context) {
 }
 
 func (h *Handler) syncData(c *gin.Context) {
-	var clientData []*models.Data
-
 	userID, ok := getUserID(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
@@ -242,14 +242,15 @@ func (h *Handler) syncData(c *gin.Context) {
 		return
 	}
 
+	var clientData []*models.Data
 	if err := c.BindJSON(&clientData); err != nil {
-		h.logger.Errorf("Ошибка при парсинге запроса: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "неверный формат запроса"})
+		h.logger.Errorf("Ошибка при парсинге данных: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "неверный формат данных"})
 
 		return
 	}
 
-	syncedData, err := h.dataService.SyncData(userID, clientData)
+	syncedData, err := h.dataService.SyncData(c.Request.Context(), userID, clientData)
 	if err != nil {
 		h.logger.Errorf("Ошибка при синхронизации данных: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ошибка при синхронизации данных"})

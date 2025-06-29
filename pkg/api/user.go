@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -13,9 +14,9 @@ const (
 )
 
 type UserService interface {
-	CreateUser(username string, password string) (int64, error)
-	GetUserByUsername(username string) (*models.User, error)
-	CheckCredentials(username string, password string) (*models.User, error)
+	CreateUser(ctx context.Context, username string, password string) (int64, error)
+	GetUserByUsername(ctx context.Context, username string) (*models.User, error)
+	CheckCredentials(ctx context.Context, username string, password string) (*models.User, error)
 }
 
 func (h *Handler) register(c *gin.Context) {
@@ -26,7 +27,7 @@ func (h *Handler) register(c *gin.Context) {
 		return
 	}
 
-	userID, err := h.userService.CreateUser(req.Username, req.Password)
+	userID, err := h.userService.CreateUser(c.Request.Context(), req.Username, req.Password)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 
@@ -51,7 +52,7 @@ func (h *Handler) login(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userService.CheckCredentials(req.Username, req.Password)
+	user, err := h.userService.CheckCredentials(c.Request.Context(), req.Username, req.Password)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "неверное имя пользователя или пароль"})
 

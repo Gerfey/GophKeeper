@@ -1,12 +1,23 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"time"
 
 	"github.com/gerfey/gophkeeper/internal/models"
 	"github.com/gerfey/gophkeeper/pkg/logger"
+)
+
+const (
+	pingTimeout   = 5 * time.Second
+	schemaTimeout = 10 * time.Second
+)
+
+var (
+	ErrUserNotFound = errors.New("пользователь не найден")
+	ErrDataNotFound = errors.New("данные не найдены")
 )
 
 type PostgresRepository struct {
@@ -20,7 +31,10 @@ func NewPostgresRepository(dsn string, logger logger.Logger) (*PostgresRepositor
 		return nil, err
 	}
 
-	if pingErr := db.Ping(); pingErr != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
+	defer cancel()
+
+	if pingErr := db.PingContext(ctx); pingErr != nil {
 		return nil, pingErr
 	}
 
@@ -35,7 +49,10 @@ func (r *PostgresRepository) Close() error {
 }
 
 func (r *PostgresRepository) InitSchema() error {
-	_, err := r.db.Exec(`
+	ctx, cancel := context.WithTimeout(context.Background(), schemaTimeout)
+	defer cancel()
+
+	_, err := r.db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS users (
 			id SERIAL PRIMARY KEY,
 			username VARCHAR(50) UNIQUE NOT NULL,
@@ -48,7 +65,7 @@ func (r *PostgresRepository) InitSchema() error {
 		return err
 	}
 
-	_, err = r.db.Exec(`
+	_, err = r.db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS data (
 			id SERIAL PRIMARY KEY,
 			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -64,9 +81,9 @@ func (r *PostgresRepository) InitSchema() error {
 	return err
 }
 
-func (r *PostgresRepository) CreateUser(user *models.User) (int64, error) {
+func (r *PostgresRepository) CreateUser(ctx context.Context, user *models.User) (int64, error) {
 	var id int64
-	err := r.db.QueryRow(`
+	err := r.db.QueryRowContext(ctx, `
 		INSERT INTO users (username, password_hash, created_at, updated_at)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id
@@ -79,9 +96,9 @@ func (r *PostgresRepository) CreateUser(user *models.User) (int64, error) {
 	return id, nil
 }
 
-func (r *PostgresRepository) GetByUsername(username string) (*models.User, error) {
+func (r *PostgresRepository) GetByUsername(ctx context.Context, username string) (*models.User, error) {
 	var user models.User
-	err := r.db.QueryRow(`
+	err := r.db.QueryRowContext(ctx, `
 		SELECT id, username, password_hash, created_at, updated_at
 		FROM users
 		WHERE username = $1
@@ -98,7 +115,7 @@ func (r *PostgresRepository) GetByUsername(username string) (*models.User, error
 	return &user, nil
 }
 
-func (r *PostgresRepository) CreateData(data *models.Data) (int64, error) {
+func (r *PostgresRepository) CreateData(ctx context.Context, data *models.Data) (int64, error) {
 	query := `
 		INSERT INTO data (user_id, data_type, name, encrypted_data, metadata, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -106,7 +123,7 @@ func (r *PostgresRepository) CreateData(data *models.Data) (int64, error) {
 	`
 
 	var id int64
-	err := r.db.QueryRow(query, data.UserID, data.Type, data.Name, data.EncryptedData, data.Metadata, data.CreatedAt, data.UpdatedAt).
+	err := r.db.QueryRowContext(ctx, query, data.UserID, data.Type, data.Name, data.EncryptedData, data.Metadata, data.CreatedAt, data.UpdatedAt).
 		Scan(&id)
 	if err != nil {
 		return 0, err
@@ -115,8 +132,8 @@ func (r *PostgresRepository) CreateData(data *models.Data) (int64, error) {
 	return id, nil
 }
 
-func (r *PostgresRepository) GetAll(userID int64) ([]*models.Data, error) {
-	rows, err := r.db.Query(`
+func (r *PostgresRepository) GetAll(ctx context.Context, userID int64) ([]*models.Data, error) {
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, user_id, data_type, name, encrypted_data, metadata, created_at, updated_at
 		FROM data
 		WHERE user_id = $1
@@ -153,9 +170,7 @@ func (r *PostgresRepository) GetAll(userID int64) ([]*models.Data, error) {
 	return result, nil
 }
 
-var ErrDataNotFound = errors.New("данные не найдены")
-
-func (r *PostgresRepository) GetByID(id, userID int64) (*models.Data, error) {
+func (r *PostgresRepository) GetByID(ctx context.Context, id, userID int64) (*models.Data, error) {
 	query := `
 		SELECT id, user_id, data_type, name, encrypted_data, metadata, created_at, updated_at
 		FROM data
@@ -163,7 +178,7 @@ func (r *PostgresRepository) GetByID(id, userID int64) (*models.Data, error) {
 	`
 
 	var data models.Data
-	err := r.db.QueryRow(query, id, userID).Scan(
+	err := r.db.QueryRowContext(ctx, query, id, userID).Scan(
 		&data.ID,
 		&data.UserID,
 		&data.Type,
@@ -184,8 +199,8 @@ func (r *PostgresRepository) GetByID(id, userID int64) (*models.Data, error) {
 	return &data, nil
 }
 
-func (r *PostgresRepository) Update(data *models.Data) error {
-	_, err := r.db.Exec(`
+func (r *PostgresRepository) Update(ctx context.Context, data *models.Data) error {
+	_, err := r.db.ExecContext(ctx, `
 		UPDATE data
 		SET data_type = $1, name = $2, encrypted_data = $3, metadata = $4, updated_at = $5
 		WHERE id = $6
@@ -194,9 +209,9 @@ func (r *PostgresRepository) Update(data *models.Data) error {
 	return err
 }
 
-func (r *PostgresRepository) Delete(id, userID int64) error {
+func (r *PostgresRepository) Delete(ctx context.Context, id, userID int64) error {
 	query := `DELETE FROM data WHERE id = $1 AND user_id = $2`
-	result, err := r.db.Exec(query, id, userID)
+	result, err := r.db.ExecContext(ctx, query, id, userID)
 	if err != nil {
 		return err
 	}
@@ -207,7 +222,7 @@ func (r *PostgresRepository) Delete(id, userID int64) error {
 	}
 
 	if rowsAffected == 0 {
-		return errors.New("запись не найдена или не принадлежит пользователю")
+		return ErrDataNotFound
 	}
 
 	return nil
