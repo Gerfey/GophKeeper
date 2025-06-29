@@ -15,37 +15,29 @@ import (
 	"github.com/rivo/tview"
 )
 
-// Константы для размеров UI элементов
 const (
-	// Высота кнопок в формах
 	buttonHeight = 3
 
-	// Стандартные размеры полей ввода
 	standardFieldWidth  = 30
 	shortFieldWidth     = 20
 	longFieldWidth      = 50
 	veryShortFieldWidth = 5
 	cvvFieldWidth       = 3
 
-	// Индексы колонок в таблице
 	idColumn      = 0
 	typeColumn    = 1
 	nameColumn    = 2
 	updatedColumn = 3
 
-	// Размеры модальных окон
 	modalFormHeight  = 3
 	dialogWidth      = 60
 	dialogHeight     = 15
 	dialogTextHeight = 3
 
-	// Размер поля для пароля
 	passwordFieldWidth = 30
 
-	// Временные константы
 	syncIntervalSeconds = 15
 
-	// Пропорции для flexbox
 	flexProportion0 = 0
 	flexProportion1 = 1
 )

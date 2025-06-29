@@ -5,8 +5,6 @@ import (
 	"errors"
 	"time"
 
-	_ "github.com/lib/pq"
-
 	"github.com/gerfey/gophkeeper/internal/models"
 	"github.com/gerfey/gophkeeper/pkg/logger"
 )
