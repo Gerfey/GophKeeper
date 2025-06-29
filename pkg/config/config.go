@@ -18,6 +18,7 @@ type Config struct {
 	Database   DatabaseConfig
 	Auth       AuthConfig
 	Encryption EncryptionConfig
+	Client     ClientConfig
 }
 
 type ServerConfig struct {
@@ -48,6 +49,12 @@ type AuthConfig struct {
 	JWTExpirationHrs int
 }
 
+type ClientConfig struct {
+	ServerURL string
+	Token     string
+	Username  string
+}
+
 func LoadConfig(path string) (*Config, error) {
 	_ = godotenv.Load()
 
@@ -63,6 +70,8 @@ func LoadConfig(path string) (*Config, error) {
 
 	viper.SetDefault("auth.jwt_signing_key", "supersecretkey")
 	viper.SetDefault("auth.jwt_expiration_hrs", DefaultJWTExpirationHours)
+
+	viper.SetDefault("client.server_url", "https://localhost:8080")
 
 	viper.AddConfigPath(path)
 	viper.SetConfigName("config")
@@ -115,6 +124,12 @@ func LoadConfig(path string) (*Config, error) {
 
 	config.Encryption = EncryptionConfig{
 		KeySize: viper.GetInt("encryption.key_size"),
+	}
+
+	config.Client = ClientConfig{
+		ServerURL: viper.GetString("client.server_url"),
+		Token:     "",
+		Username:  "",
 	}
 
 	return &config, nil

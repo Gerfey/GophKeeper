@@ -10,13 +10,9 @@ import (
 func (t *TUI) logout() {
 	t.stopAutoSync()
 
-	t.config.Token = ""
+	t.config.Client.Token = ""
 	t.client.SetAuthToken("")
 	t.dataList = nil
-
-	if err := t.saveConfig(); err != nil {
-		t.showError(fmt.Sprintf("Ошибка при сохранении конфигурации: %v", err))
-	}
 
 	t.pages.SwitchToPage("login")
 }
@@ -24,8 +20,8 @@ func (t *TUI) logout() {
 func (t *TUI) createLoginPage() tview.Primitive {
 	loginForm := tview.NewForm()
 
-	loginForm.AddInputField("Сервер", t.config.ServerURL, standardFieldWidth, nil, func(text string) {
-		t.config.ServerURL = text
+	loginForm.AddInputField("Сервер", t.config.Client.ServerURL, standardFieldWidth, nil, func(text string) {
+		t.config.Client.ServerURL = text
 		t.client = NewClient(text, true)
 	})
 
@@ -59,11 +55,8 @@ func (t *TUI) createLoginPage() tview.Primitive {
 			return
 		}
 
-		t.config.Token = t.client.GetAuthToken()
-		t.config.Username = username
-		if saveErr := t.saveConfig(); saveErr != nil {
-			t.showError(fmt.Sprintf("Ошибка сохранения конфигурации: %v", saveErr))
-		}
+		t.config.Client.Token = t.client.GetAuthToken()
+		t.config.Client.Username = username
 
 		t.loadData()
 		t.startAutoSync()
@@ -95,8 +88,8 @@ func (t *TUI) createRegisterPage() tview.Primitive {
 }
 
 func (t *TUI) addRegisterFormFields(form *tview.Form) {
-	form.AddInputField("Сервер", t.config.ServerURL, standardFieldWidth, nil, func(text string) {
-		t.config.ServerURL = text
+	form.AddInputField("Сервер", t.config.Client.ServerURL, standardFieldWidth, nil, func(text string) {
+		t.config.Client.ServerURL = text
 		t.client = NewClient(text, true)
 	})
 

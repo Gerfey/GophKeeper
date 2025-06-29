@@ -1,12 +1,10 @@
 package client
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/gerfey/gophkeeper/internal/models"
+	"github.com/gerfey/gophkeeper/pkg/config"
 	"github.com/rivo/tview"
 )
 
@@ -51,8 +49,7 @@ type TUI struct {
 	app               *tview.Application
 	pages             *tview.Pages
 	client            *Client
-	config            *Config
-	configPath        string
+	config            *config.Config
 	dataList          []models.DataResponse
 	setViewData       func(data models.DataResponse)
 	lastFileDialogDir string
@@ -61,61 +58,27 @@ type TUI struct {
 	dataTable         *tview.Table
 }
 
-func NewTUI(configPath string) (*TUI, error) {
+func NewTUI(cfg *config.Config) (*TUI, error) {
 	tui := &TUI{
-		app:        tview.NewApplication(),
-		pages:      tview.NewPages(),
-		configPath: configPath,
-		config: &Config{
-			ServerURL: "https://localhost:8080",
-		},
+		app:    tview.NewApplication(),
+		pages:  tview.NewPages(),
+		config: cfg,
 	}
 
-	if err := tui.loadConfig(); err == nil {
-		tui.client = NewClient(tui.config.ServerURL, true)
-		tui.client.SetAuthToken(tui.config.Token)
-	} else {
-		tui.client = NewClient(tui.config.ServerURL, true)
+	tui.client = NewClient(tui.config.Client.ServerURL, true)
+
+	if tui.config.Client.Token != "" {
+		tui.client.SetAuthToken(tui.config.Client.Token)
+		tui.client.username = tui.config.Client.Username
 	}
 
 	return tui, nil
 }
 
-func (t *TUI) loadConfig() error {
-	if _, err := os.Stat(t.configPath); os.IsNotExist(err) {
-		return err
-	}
-
-	data, err := os.ReadFile(t.configPath)
-	if err != nil {
-		return err
-	}
-
-	if unmarshalErr := json.Unmarshal(data, t.config); unmarshalErr != nil {
-		return unmarshalErr
-	}
-
-	return nil
-}
-
-func (t *TUI) saveConfig() error {
-	dir := filepath.Dir(t.configPath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
-
-	data, err := json.Marshal(t.config)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(t.configPath, data, 0600)
-}
-
 func (t *TUI) Run() error {
 	t.initPages()
 
-	if t.config.Token == "" {
+	if t.config.Client.Token == "" {
 		t.pages.SwitchToPage("login")
 	} else {
 		t.loadData()
@@ -124,6 +87,11 @@ func (t *TUI) Run() error {
 	}
 
 	return t.app.SetRoot(t.pages, true).EnableMouse(true).Run()
+}
+
+func (t *TUI) Stop() {
+	t.stopAutoSync()
+	t.app.Stop()
 }
 
 func (t *TUI) startAutoSync() {

@@ -21,3 +21,6 @@ auth:
 
 encryption:
   key_size: 32
+
+client:
+  server_url: "https://localhost:8080"

@@ -74,11 +74,6 @@ func (t *TUI) showCreateMasterPasswordModal() {
 			return
 		}
 
-		t.config.HasMasterPassword = true
-		if saveErr := t.saveConfig(); saveErr != nil {
-			t.showError(fmt.Sprintf("Ошибка сохранения конфигурации: %v", saveErr))
-		}
-
 		t.pages.RemovePage("masterPasswordModal")
 		t.pages.SwitchToPage("main")
 	})
