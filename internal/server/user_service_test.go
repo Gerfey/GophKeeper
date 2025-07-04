@@ -32,9 +32,10 @@ func TestUserService_CreateUser(t *testing.T) {
 
 	mockRepo.EXPECT().
 		CreateUser(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, u *models.User) (int64, error) {
+		DoAndReturn(func(_ context.Context, u *models.User) (int64, error) {
 			assert.Equal(t, username, u.Username)
 			assert.NotEqual(t, password, u.Password)
+
 			return 1, nil
 		})
 

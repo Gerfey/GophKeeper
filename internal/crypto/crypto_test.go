@@ -2,6 +2,7 @@ package crypto_test
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
 	"github.com/gerfey/gophkeeper/internal/crypto"
@@ -17,13 +18,11 @@ func TestGenerateKey(t *testing.T) {
 		t.Errorf("Длина ключа %d не соответствует ожидаемой %d", len(key), crypto.KeyLength)
 	}
 
-	// Проверка детерминированности - один и тот же пароль и соль должны давать один и тот же ключ
 	key2 := crypto.GenerateKey(password, salt)
 	if !bytes.Equal(key, key2) {
 		t.Error("Генерация ключа не детерминирована")
 	}
 
-	// Разные пароли должны давать разные ключи
 	differentPassword := []byte("different_password")
 	differentKey := crypto.GenerateKey(differentPassword, salt)
 	if bytes.Equal(key, differentKey) {
@@ -38,7 +37,6 @@ func TestEncryptDecrypt(t *testing.T) {
 		key[i] = byte(i % 256)
 	}
 
-	// Тест успешного шифрования и расшифровки
 	ciphertext, err := crypto.Encrypt(plaintext, key)
 	if err != nil {
 		t.Fatalf("Ошибка шифрования: %v", err)
@@ -53,26 +51,23 @@ func TestEncryptDecrypt(t *testing.T) {
 		t.Error("Расшифрованный текст не соответствует исходному")
 	}
 
-	// Тест с неверным ключом
 	wrongKey := make([]byte, crypto.KeyLength)
 	_, err = crypto.Decrypt(ciphertext, wrongKey)
 	if err == nil {
 		t.Error("Расшифровка с неверным ключом должна вернуть ошибку")
 	}
 
-	// Тест с неверной длиной ключа
 	shortKey := make([]byte, crypto.KeyLength-1)
 	_, err = crypto.Encrypt(plaintext, shortKey)
-	if err != crypto.ErrInvalidKeyLength {
+	if !errors.Is(err, crypto.ErrInvalidKeyLength) {
 		t.Errorf("Ожидалась ошибка %v, получена %v", crypto.ErrInvalidKeyLength, err)
 	}
 
 	_, err = crypto.Decrypt(ciphertext, shortKey)
-	if err != crypto.ErrInvalidKeyLength {
+	if !errors.Is(err, crypto.ErrInvalidKeyLength) {
 		t.Errorf("Ожидалась ошибка %v, получена %v", crypto.ErrInvalidKeyLength, err)
 	}
 
-	// Тест с поврежденными данными
 	invalidCiphertext := append([]byte{}, ciphertext...)
 	if len(invalidCiphertext) > 0 {
 		invalidCiphertext[len(invalidCiphertext)-1] ^= 0x01 // Изменяем последний байт
@@ -106,7 +101,6 @@ func TestGenerateSalt(t *testing.T) {
 func TestHashVerifyPassword(t *testing.T) {
 	password := "test_password"
 
-	// Тест успешного хеширования и проверки
 	hash, err := crypto.HashPassword(password)
 	if err != nil {
 		t.Fatalf("Ошибка хеширования пароля: %v", err)
@@ -116,18 +110,15 @@ func TestHashVerifyPassword(t *testing.T) {
 		t.Error("Проверка пароля не удалась для правильного пароля")
 	}
 
-	// Тест с неверным паролем
 	wrongPassword := "wrong_password"
 	if crypto.VerifyPassword(wrongPassword, hash) {
 		t.Error("Проверка пароля успешна для неверного пароля")
 	}
 
-	// Тест с неверным хешем
 	if crypto.VerifyPassword(password, "invalid_hash") {
 		t.Error("Проверка пароля успешна для неверного хеша")
 	}
 
-	// Тест с пустым паролем
 	emptyHash, err := crypto.HashPassword("")
 	if err != nil {
 		t.Fatalf("Ошибка хеширования пустого пароля: %v", err)

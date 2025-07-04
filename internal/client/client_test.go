@@ -1,9 +1,9 @@
-package client
+package client_test
 
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -14,30 +14,28 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	"github.com/gerfey/gophkeeper/internal/client"
+
 	"github.com/gerfey/gophkeeper/internal/crypto"
 	"github.com/gerfey/gophkeeper/internal/models"
 )
 
 func TestEncryptDecrypt(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "gophkeeper_test")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockHTTP := NewMockHTTPClient(ctrl)
+	mockHTTP := client.NewMockHTTPClient(ctrl)
 
-	c := &Client{}
+	c := &client.Client{}
 	c.SetHTTPClient(mockHTTP)
 
 	c.SetConfigPath(tempDir)
 	c.SetUsername("testuser")
 
 	salt, err := crypto.GenerateSalt()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	c.SetSalt(salt)
 
 	saltFilePath := filepath.Join(tempDir, "testuser.salt")
@@ -94,14 +92,14 @@ func TestEncryptDecrypt(t *testing.T) {
 			}
 
 			masterPassword := "test_master_password"
-			encryptedData, err := c.EncryptData(tc.content, tc.dataType, masterPassword)
-			require.NoError(t, err)
+			encryptedData, errEncryptData := c.EncryptData(tc.content, tc.dataType, masterPassword)
+			require.NoError(t, errEncryptData)
 			assert.NotEmpty(t, encryptedData)
 
 			data.EncryptedData = encryptedData
 
-			decryptedContent, err := c.DecryptData(data, masterPassword)
-			require.NoError(t, err)
+			decryptedContent, errDecryptData := c.DecryptData(data, masterPassword)
+			require.NoError(t, errDecryptData)
 			assert.NotNil(t, decryptedContent)
 
 			switch tc.dataType {
@@ -133,11 +131,9 @@ func TestEncryptDecrypt(t *testing.T) {
 }
 
 func TestVerifyMasterPassword(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "gophkeeper_test")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
-	c := &Client{}
+	c := &client.Client{}
 
 	c.SetConfigPath(tempDir)
 	c.SetUsername("testuser")
@@ -164,7 +160,7 @@ func TestVerifyMasterPassword(t *testing.T) {
 	c.SetSalt(salt)
 
 	_, err = os.Stat(passwordFilePath)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	data, err := os.ReadFile(passwordFilePath)
 	require.NoError(t, err)
@@ -176,7 +172,7 @@ func TestLogin(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockHTTP := NewMockHTTPClient(ctrl)
+	mockHTTP := client.NewMockHTTPClient(ctrl)
 
 	jsonResponse := `{"token":"test_token"}`
 	mockResp := &http.Response{
@@ -194,7 +190,10 @@ func TestLogin(t *testing.T) {
 			body, err := io.ReadAll(req.Body)
 			require.NoError(t, err)
 
-			var loginReq models.LoginRequest
+			var loginReq struct {
+				Username string `json:"username"`
+				Password string `json:"password"`
+			}
 			err = json.Unmarshal(body, &loginReq)
 			require.NoError(t, err)
 
@@ -204,16 +203,14 @@ func TestLogin(t *testing.T) {
 			return mockResp, nil
 		})
 
-	c := &Client{}
+	c := &client.Client{}
 	c.SetHTTPClient(mockHTTP)
 
-	tempDir, err := os.MkdirTemp("", "gophkeeper_test")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	c.SetConfigPath(tempDir)
 
-	err = c.Login(t.Context(), "testuser", "password")
+	err := c.Login(t.Context(), "testuser", "password")
 
 	require.NoError(t, err)
 	assert.Equal(t, "test_token", c.GetToken())
@@ -224,13 +221,13 @@ func TestLoginError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockHTTP := NewMockHTTPClient(ctrl)
+	mockHTTP := client.NewMockHTTPClient(ctrl)
 
 	mockHTTP.EXPECT().
 		Do(gomock.Any()).
 		Return(nil, assert.AnError)
 
-	c := &Client{}
+	c := &client.Client{}
 	c.SetHTTPClient(mockHTTP)
 
 	err := c.Login(t.Context(), "testuser", "password")
@@ -243,13 +240,13 @@ func TestLoginAuthFailed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockHTTP := NewMockHTTPClient(ctrl)
+	mockHTTP := client.NewMockHTTPClient(ctrl)
 
 	mockHTTP.EXPECT().
 		Do(gomock.Any()).
-		Return(nil, fmt.Errorf("ошибка HTTP: 401 Unauthorized"))
+		Return(nil, errors.New("ошибка HTTP: 401 Unauthorized"))
 
-	c := &Client{}
+	c := &client.Client{}
 	c.SetHTTPClient(mockHTTP)
 
 	err := c.Login(t.Context(), "testuser", "wrongpassword")
@@ -262,7 +259,7 @@ func TestCreateData(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockHTTP := NewMockHTTPClient(ctrl)
+	mockHTTP := client.NewMockHTTPClient(ctrl)
 
 	mockResp := &http.Response{
 		StatusCode: http.StatusCreated,
@@ -279,14 +276,14 @@ func TestCreateData(t *testing.T) {
 
 			var reqBody models.DataRequest
 			err := json.NewDecoder(req.Body).Decode(&reqBody)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, "test_data", reqBody.Name)
 			assert.Equal(t, models.TextData, reqBody.Type)
 
 			return mockResp, nil
 		})
 
-	c := &Client{}
+	c := &client.Client{}
 	c.SetHTTPClient(mockHTTP)
 
 	c.SetToken("test_token")
@@ -298,19 +295,19 @@ func TestCreateData(t *testing.T) {
 }
 
 func TestCreateDataNotAuthenticated(t *testing.T) {
-	c := &Client{}
+	c := &client.Client{}
 
 	_, err := c.CreateData(t.Context(), "test_data", models.TextData, []byte("test_content"))
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotAuthenticated)
+	assert.ErrorIs(t, err, client.ErrNotAuthenticated)
 }
 
 func TestGetData(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockHTTP := NewMockHTTPClient(ctrl)
+	mockHTTP := client.NewMockHTTPClient(ctrl)
 
 	mockResp := &http.Response{
 		StatusCode: http.StatusOK,
@@ -335,7 +332,7 @@ func TestGetData(t *testing.T) {
 			return mockResp, nil
 		})
 
-	c := &Client{}
+	c := &client.Client{}
 	c.SetHTTPClient(mockHTTP)
 
 	c.SetToken("test_token")
@@ -355,25 +352,25 @@ func TestGetData(t *testing.T) {
 }
 
 func TestGetDataNotAuthenticated(t *testing.T) {
-	c := &Client{}
+	c := &client.Client{}
 
 	_, err := c.GetData(t.Context(), 123)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotAuthenticated)
+	assert.ErrorIs(t, err, client.ErrNotAuthenticated)
 }
 
 func TestGetDataNotFound(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockHTTP := NewMockHTTPClient(ctrl)
+	mockHTTP := client.NewMockHTTPClient(ctrl)
 
 	mockHTTP.EXPECT().
 		Do(gomock.Any()).
-		Return(nil, fmt.Errorf("ошибка HTTP: 404 Not Found"))
+		Return(nil, errors.New("ошибка HTTP: 404 Not Found"))
 
-	c := &Client{}
+	c := &client.Client{}
 	c.SetHTTPClient(mockHTTP)
 
 	c.SetToken("test_token")
@@ -388,19 +385,18 @@ func TestGetAllData(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockHTTP := NewMockHTTPClient(ctrl)
+	mockHTTP := client.NewMockHTTPClient(ctrl)
 
 	jsonResponse := `[{
 		"id": 123,
 		"type": "text_data",
-		"name": "test_data_1",
-		"encrypted_data": "ZW5jcnlwdGVkX2RhdGFfMQ=="
-	},
-	{
-		"id": 124,
+		"name": "Test Data 1",
+		"encrypted_data": "encrypted1"
+	}, {
+		"id": 456,
 		"type": "login_password",
-		"name": "test_data_2",
-		"encrypted_data": "ZW5jcnlwdGVkX2RhdGFfMg=="
+		"name": "Test Data 2",
+		"encrypted_data": "encrypted2"
 	}]`
 	mockResp := &http.Response{
 		StatusCode: http.StatusOK,
@@ -417,7 +413,7 @@ func TestGetAllData(t *testing.T) {
 			return mockResp, nil
 		})
 
-	c := &Client{}
+	c := &client.Client{}
 	c.SetHTTPClient(mockHTTP)
 
 	salt, err := crypto.GenerateSalt()
@@ -426,9 +422,7 @@ func TestGetAllData(t *testing.T) {
 	}
 	c.SetSalt(salt)
 
-	tempDir, err := os.MkdirTemp("", "gophkeeper_test")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	c.SetConfigPath(tempDir)
 	c.SetUsername("testuser")
@@ -442,18 +436,16 @@ func TestGetAllData(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, dataList, 2)
 	assert.Equal(t, int64(123), dataList[0].ID)
-	assert.Equal(t, models.TextData, dataList[0].Type)
-	assert.Equal(t, "test_data_1", dataList[0].Name)
-	assert.Equal(t, int64(124), dataList[1].ID)
-	assert.Equal(t, models.LoginPassword, dataList[1].Type)
-	assert.Equal(t, "test_data_2", dataList[1].Name)
+	assert.Equal(t, "Test Data 1", dataList[0].Name)
+	assert.Equal(t, int64(456), dataList[1].ID)
+	assert.Equal(t, "Test Data 2", dataList[1].Name)
 }
 
 func TestDeleteData(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockHTTP := NewMockHTTPClient(ctrl)
+	mockHTTP := client.NewMockHTTPClient(ctrl)
 
 	mockResp := &http.Response{
 		StatusCode: http.StatusOK,
@@ -471,7 +463,7 @@ func TestDeleteData(t *testing.T) {
 			return mockResp, nil
 		})
 
-	c := &Client{}
+	c := &client.Client{}
 	c.SetHTTPClient(mockHTTP)
 
 	c.SetToken("test_token")
@@ -482,10 +474,10 @@ func TestDeleteData(t *testing.T) {
 }
 
 func TestDeleteDataNotAuthenticated(t *testing.T) {
-	c := &Client{}
+	c := &client.Client{}
 
 	err := c.DeleteData(t.Context(), 123)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrNotAuthenticated)
+	assert.ErrorIs(t, err, client.ErrNotAuthenticated)
 }

@@ -31,12 +31,13 @@ func TestDataService_CreateData(t *testing.T) {
 
 	mockRepo.EXPECT().
 		CreateData(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, d *models.Data) (int64, error) {
+		DoAndReturn(func(_ context.Context, d *models.Data) (int64, error) {
 			assert.Equal(t, data.UserID, d.UserID)
 			assert.Equal(t, data.Type, d.Type)
 			assert.Equal(t, data.Name, d.Name)
 			assert.False(t, d.CreatedAt.IsZero())
 			assert.False(t, d.UpdatedAt.IsZero())
+
 			return 1, nil
 		})
 
@@ -148,7 +149,7 @@ func TestDataService_UpdateData(t *testing.T) {
 
 	mockRepo.EXPECT().
 		Update(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, d *models.Data) error {
+		DoAndReturn(func(_ context.Context, d *models.Data) error {
 			assert.Equal(t, data.ID, d.ID)
 			assert.Equal(t, data.UserID, d.UserID)
 			assert.Equal(t, data.Type, d.Type)
@@ -210,13 +211,14 @@ func TestDataService_CreateDataWithEncrypted(t *testing.T) {
 
 	mockRepo.EXPECT().
 		CreateData(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, d *models.Data) (int64, error) {
+		DoAndReturn(func(_ context.Context, d *models.Data) (int64, error) {
 			assert.Equal(t, data.UserID, d.UserID)
 			assert.Equal(t, data.Type, d.Type)
 			assert.Equal(t, data.Name, d.Name)
 			assert.Equal(t, data.EncryptedData, d.EncryptedData)
 			assert.False(t, d.CreatedAt.IsZero())
 			assert.False(t, d.UpdatedAt.IsZero())
+
 			return 1, nil
 		})
 
@@ -394,25 +396,28 @@ func TestDataService_SyncData(t *testing.T) {
 
 	mockRepo.EXPECT().
 		Update(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, d *models.Data) error {
+		DoAndReturn(func(_ context.Context, d *models.Data) error {
 			assert.Equal(t, int64(2), d.ID)
 			assert.Equal(t, "Updated Client Data 2", d.Name)
+
 			return nil
 		})
 
 	mockRepo.EXPECT().
 		CreateData(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, d *models.Data) (int64, error) {
+		DoAndReturn(func(_ context.Context, d *models.Data) (int64, error) {
 			assert.Equal(t, int64(0), d.ID)
 			assert.Equal(t, "New Client Data", d.Name)
+
 			return 5, nil
 		})
 
 	mockRepo.EXPECT().
 		CreateData(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, d *models.Data) (int64, error) {
+		DoAndReturn(func(_ context.Context, d *models.Data) (int64, error) {
 			assert.Equal(t, int64(0), d.ID)
 			assert.Equal(t, "Missing Server Data", d.Name)
+
 			return 6, nil
 		})
 
@@ -421,7 +426,7 @@ func TestDataService_SyncData(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 
-	assert.Equal(t, 6, len(result))
+	assert.Len(t, result, 6)
 
 	foundServer1 := false
 	foundServer3 := false
