@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+//go:generate mockgen -source=logger.go -destination=mock_logger.go -package=logger
+
 type Level int
 
 const (

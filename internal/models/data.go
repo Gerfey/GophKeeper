@@ -70,7 +70,7 @@ func (d *Data) ToDataResponse() DataResponse {
 		ID:        d.ID,
 		Type:      d.Type,
 		Name:      d.Name,
-		Content:   nil,
+		Content:   d.Content,
 		Metadata:  d.Metadata,
 		CreatedAt: d.CreatedAt,
 		UpdatedAt: d.UpdatedAt,

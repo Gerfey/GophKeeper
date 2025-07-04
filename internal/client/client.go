@@ -37,7 +37,7 @@ const (
 
 type Client struct {
 	baseURL    string
-	httpClient *http.Client
+	httpClient HTTPClient
 	token      string
 	logger     *slog.Logger
 	salt       []byte
@@ -53,12 +53,16 @@ func NewClient(baseURL string, insecureSkipVerify bool) *Client {
 		},
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	configPath, err := getDefaultConfigPath()
+	if err != nil {
+		configPath = "."
+	}
 
 	return &Client{
 		baseURL:    baseURL,
 		httpClient: httpClient,
-		logger:     logger,
+		logger:     slog.New(slog.NewTextHandler(os.Stdout, nil)),
+		configPath: configPath,
 	}
 }
 
@@ -664,4 +668,13 @@ func (c *Client) deriveKeyFromPassword(password string) []byte {
 	key := crypto.GenerateKey([]byte(password), c.salt)
 
 	return key
+}
+
+func getDefaultConfigPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("ошибка получения домашней директории: %w", err)
+	}
+
+	return filepath.Join(homeDir, configDir), nil
 }

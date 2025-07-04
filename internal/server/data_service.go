@@ -10,6 +10,8 @@ import (
 	"github.com/gerfey/gophkeeper/pkg/logger"
 )
 
+//go:generate mockgen -source=data_service.go -destination=mock_data_repository.go -package=server
+
 var (
 	ErrDataAccessDenied = errors.New("доступ к данным запрещен")
 	ErrEncryptionFailed = errors.New("ошибка шифрования данных")
@@ -275,4 +277,8 @@ func (s *DataService) prepareData(data *models.Data) error {
 	data.Content = nil
 
 	return nil
+}
+
+func (s *DataService) PrepareDataTest(data *models.Data) error {
+	return s.prepareData(data)
 }
