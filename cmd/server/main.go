@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"net/http"
@@ -47,17 +46,10 @@ func main() {
 		return
 	}
 
-	encryptionKey := make([]byte, cfg.Encryption.KeySize)
-	if _, randErr := rand.Read(encryptionKey); randErr != nil {
-		log.Errorf("Ошибка генерации ключа шифрования: %v", randErr)
-
-		return
-	}
-
 	tokenManager := auth.NewJWTManager(cfg.Auth.JWTSecret)
 
 	userService := server.NewUserService(repo, log)
-	dataService := server.NewDataService(repo, log, encryptionKey)
+	dataService := server.NewDataService(repo, log)
 
 	handler := api.NewHandler(tokenManager, userService, dataService, log)
 

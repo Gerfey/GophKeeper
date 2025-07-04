@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,19 +59,19 @@ func (t *TUI) addDataTypeSpecificFields(form *tview.Form, dataType string) {
 }
 
 func (t *TUI) addLoginPasswordFields(form *tview.Form) {
-	form.AddInputField("Логин", "", standardFieldWidth, nil, nil)
-	form.AddPasswordField("Пароль", "", standardFieldWidth, '*', nil)
+	form.AddInputField("Логин:", "", standardFieldWidth, nil, nil)
+	form.AddPasswordField("Пароль:", "", standardFieldWidth, '*', nil)
 }
 
 func (t *TUI) addTextDataFields(form *tview.Form) {
-	form.AddTextArea("Текст", "", longFieldWidth, textAreaHeight, 0, nil)
+	form.AddTextArea("Текст:", "", longFieldWidth, textAreaHeight, 0, nil)
 }
 
 func (t *TUI) addCardDataFields(form *tview.Form) {
-	form.AddInputField("Номер карты", "", standardFieldWidth, nil, nil)
-	form.AddInputField("Имя владельца", "", standardFieldWidth, nil, nil)
-	form.AddInputField("Срок действия (MM/YY)", "", shortFieldWidth, nil, nil)
-	form.AddInputField("CVV", "", cvvFieldWidth, nil, nil)
+	form.AddInputField("Номер карты:", "", standardFieldWidth, nil, nil)
+	form.AddInputField("Имя владельца:", "", standardFieldWidth, nil, nil)
+	form.AddInputField("Срок действия (MM/YY):", "", shortFieldWidth, nil, nil)
+	form.AddInputField("CVV:", "", cvvFieldWidth, nil, nil)
 }
 
 func (t *TUI) addBinaryDataFields(form *tview.Form) {
@@ -209,7 +208,8 @@ func (t *TUI) extractTextData(form *tview.Form) models.TextDataContent {
 	}
 
 	return models.TextDataContent{
-		Text: text,
+		Content: text,
+		Text:    text,
 	}
 }
 
@@ -243,57 +243,47 @@ func (t *TUI) extractCardData(form *tview.Form) models.CardDataContent {
 	}
 }
 
-func (t *TUI) extractBinaryData(form *tview.Form) (models.BinaryDataContent, error) {
+func (t *TUI) extractBinaryData(form *tview.Form) models.BinaryDataContent {
+	fileName := ""
 	filePath := ""
+	var fileData []byte
 
 	for i := range form.GetFormItemCount() {
 		item := form.GetFormItem(i)
-
-		if field, ok := item.(*tview.InputField); ok && field.GetLabel() == "FilePath" {
-			filePath = field.GetText()
-
-			break
+		if field, ok := item.(*tview.InputField); ok {
+			if field.GetLabel() == "FilePath" {
+				filePath = field.GetText()
+			}
 		}
 	}
 
-	if filePath == "" {
-		return models.BinaryDataContent{}, errors.New("файл не выбран")
+	if filePath != "" {
+		fileName = filepath.Base(filePath)
 	}
 
-	fileData, err := os.ReadFile(filePath)
-	if err != nil {
-		return models.BinaryDataContent{}, fmt.Errorf("ошибка чтения файла: %w", err)
-	}
-
-	return models.BinaryDataContent{
-		FileName: filepath.Base(filePath),
+	result := models.BinaryDataContent{
+		FileName: fileName,
 		Data:     fileData,
-	}, nil
+	}
+
+	return result
 }
 
 func (t *TUI) processDataByType(form *tview.Form, req *models.DataRequest) {
+	var data any
+
 	switch req.Type {
 	case models.LoginPassword:
-		data := t.extractLoginPasswordData(form)
-		t.encryptAndSaveData(data, req)
-
+		data = t.extractLoginPasswordData(form)
 	case models.TextData:
-		data := t.extractTextData(form)
-		t.encryptAndSaveData(data, req)
-
+		data = t.extractTextData(form)
 	case models.CardData:
-		data := t.extractCardData(form)
-		t.encryptAndSaveData(data, req)
-
+		data = t.extractCardData(form)
 	case models.BinaryData:
-		data, err := t.extractBinaryData(form)
-		if err != nil {
-			t.showError(err.Error())
-
-			return
-		}
-		t.encryptAndSaveData(data, req)
+		data = t.extractBinaryData(form)
 	}
+
+	t.encryptAndSaveData(data, req)
 }
 
 func (t *TUI) handleDecryptData(id int64) {

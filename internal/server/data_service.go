@@ -6,7 +6,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/gerfey/gophkeeper/internal/crypto"
 	"github.com/gerfey/gophkeeper/internal/models"
 	"github.com/gerfey/gophkeeper/pkg/logger"
 )
@@ -25,21 +24,19 @@ type DataRepository interface {
 }
 
 type DataService struct {
-	repo          DataRepository
-	logger        logger.Logger
-	encryptionKey []byte
+	repo   DataRepository
+	logger logger.Logger
 }
 
-func NewDataService(repo DataRepository, logger logger.Logger, encryptionKey []byte) *DataService {
+func NewDataService(repo DataRepository, logger logger.Logger) *DataService {
 	return &DataService{
-		repo:          repo,
-		logger:        logger,
-		encryptionKey: encryptionKey,
+		repo:   repo,
+		logger: logger,
 	}
 }
 
 func (s *DataService) CreateData(ctx context.Context, data *models.Data) (int64, error) {
-	err := s.encryptData(data)
+	err := s.prepareData(data)
 	if err != nil {
 		return 0, ErrEncryptionFailed
 	}
@@ -90,7 +87,7 @@ func (s *DataService) UpdateData(ctx context.Context, data *models.Data) error {
 		return ErrDataAccessDenied
 	}
 
-	err = s.encryptData(data)
+	err = s.prepareData(data)
 	if err != nil {
 		return ErrEncryptionFailed
 	}
@@ -250,7 +247,7 @@ func (s *DataService) addMissingServerData(
 	return result
 }
 
-func (s *DataService) encryptData(data *models.Data) error {
+func (s *DataService) prepareData(data *models.Data) error {
 	if data.EncryptedData != nil {
 		return nil
 	}
@@ -274,12 +271,7 @@ func (s *DataService) encryptData(data *models.Data) error {
 		return errors.New("неизвестный тип данных")
 	}
 
-	encryptedData, err := crypto.Encrypt(jsonData, s.encryptionKey)
-	if err != nil {
-		return ErrEncryptionFailed
-	}
-
-	data.EncryptedData = encryptedData
+	data.EncryptedData = jsonData
 	data.Content = nil
 
 	return nil

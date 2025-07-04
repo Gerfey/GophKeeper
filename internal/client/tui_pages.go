@@ -120,13 +120,16 @@ func (t *TUI) createViewPageButtons(text *tview.TextView, data models.DataRespon
 
 	if data.Type == models.BinaryData {
 		buttons.AddButton("Скачать", func() {
-			if data.Content == nil {
+			id := t.extractIDFromText(text)
+			currentData, _ := t.findDataByID(id)
+
+			if currentData == nil || currentData.Content == nil {
 				t.showError("Сначала необходимо расшифровать данные")
 
 				return
 			}
 
-			binaryData, ok := data.Content.(models.BinaryDataContent)
+			binaryData, ok := currentData.Content.(models.BinaryDataContent)
 			if !ok {
 				t.showError("Ошибка: неверный формат данных")
 
@@ -165,14 +168,17 @@ func (t *TUI) createViewPageForData(data models.DataResponse) {
 		SetScrollable(true).
 		SetWordWrap(true)
 
+	localData := data
+
 	t.setViewData = func(updatedData models.DataResponse) {
 		text.Clear()
+		localData = updatedData
 		t.displayDataInTextView(text, updatedData)
 	}
 
-	t.displayDataInTextView(text, data)
+	t.displayDataInTextView(text, localData)
 
-	buttons := t.createViewPageButtons(text, data)
+	buttons := t.createViewPageButtons(text, localData)
 
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).

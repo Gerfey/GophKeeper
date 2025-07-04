@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
@@ -23,6 +24,8 @@ import (
 var (
 	ErrInvalidResponse  = errors.New("неверный ответ сервера")
 	ErrNotAuthenticated = errors.New("не авторизован")
+	ErrAuthFailed       = errors.New("аутентификация не удалась")
+	ErrDataNotFound     = errors.New("данные не найдены")
 )
 
 const (
@@ -113,13 +116,19 @@ func (c *Client) Login(ctx context.Context, username, password string) error {
 	}
 	defer resp.Body.Close()
 
-	var response models.LoginResponse
-	if errDecode := json.NewDecoder(resp.Body).Decode(&response); errDecode != nil {
-		return errDecode
+	if resp.StatusCode != http.StatusOK {
+		return ErrAuthFailed
 	}
 
-	c.token = response.Token
+	var loginResp models.LoginResponse
+	if errDecoder := json.NewDecoder(resp.Body).Decode(&loginResp); errDecoder != nil {
+		return errDecoder
+	}
+
+	c.token = loginResp.Token
 	c.username = username
+
+	_ = c.initSalt()
 
 	return nil
 }
@@ -145,27 +154,35 @@ func (c *Client) GetAllData() ([]models.DataResponse, error) {
 	}
 
 	for i := range response {
-		c.processDataContent(&response[i])
+		if errProcessDataContent := c.processDataContent(&response[i]); errProcessDataContent != nil {
+			return nil, errProcessDataContent
+		}
 	}
 
 	return response, nil
 }
 
-func (c *Client) GetData(id int64) (*models.DataResponse, error) {
-	resp, err := c.sendRequest(context.Background(), http.MethodGet, fmt.Sprintf("/api/data/%d", id), nil)
+func (c *Client) GetData(ctx context.Context, id int64) (*models.Data, error) {
+	if c.token == "" {
+		return nil, ErrNotAuthenticated
+	}
+
+	resp, err := c.sendRequest(ctx, "GET", fmt.Sprintf("/api/data/%d", id), nil)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	var response models.DataResponse
-	if errDecode := json.NewDecoder(resp.Body).Decode(&response); errDecode != nil {
+	if resp.StatusCode != http.StatusOK {
+		return nil, ErrDataNotFound
+	}
+
+	var data models.Data
+	if errDecode := json.NewDecoder(resp.Body).Decode(&data); errDecode != nil {
 		return nil, ErrInvalidResponse
 	}
 
-	c.processDataContent(&response)
-
-	return &response, nil
+	return &data, nil
 }
 
 func (c *Client) GetEncryptedData(id int64) (*models.Data, error) {
@@ -246,7 +263,12 @@ func (c *Client) DecryptData(data *models.Data, masterPassword string) (any, err
 		}
 		result = textData
 	case models.BinaryData:
-		return nil, errors.New("недостижимый код")
+		var binaryData models.BinaryDataContent
+		if errUnmarshal := json.Unmarshal(decrypted, &binaryData); errUnmarshal != nil {
+			return nil, fmt.Errorf("ошибка десериализации данных: %w", errUnmarshal)
+		}
+
+		result = binaryData
 	default:
 		return nil, fmt.Errorf("неизвестный тип данных: %s", data.Type)
 	}
@@ -426,26 +448,37 @@ func (c *Client) GetMasterPassword() (string, error) {
 }
 
 func (c *Client) SetMasterPassword(password string) error {
-	salt, err := crypto.GenerateSalt()
-	if err != nil {
-		return err
+	if c.username == "" {
+		return errors.New("имя пользователя не задано")
 	}
 
+	salt := make([]byte, crypto.SaltLength)
+	if _, err := rand.Read(salt); err != nil {
+		return fmt.Errorf("ошибка генерации соли: %w", err)
+	}
 	c.salt = salt
 
 	hashedPassword, err := crypto.HashPassword(password)
 	if err != nil {
-		return err
+		return fmt.Errorf("ошибка хэширования пароля: %w", err)
 	}
 
-	dir := filepath.Dir(c.configPath)
-	if errMkdir := os.MkdirAll(dir, 0700); errMkdir != nil {
-		return errMkdir
+	passwordPath := filepath.Join(c.configPath, c.username+".pwd")
+	if errCreateDir := os.MkdirAll(filepath.Dir(passwordPath), 0700); errCreateDir != nil {
+		return fmt.Errorf("ошибка создания директории для пароля: %w", errCreateDir)
 	}
 
-	path := c.getMasterPasswordPath()
-	if errWrite := os.WriteFile(path, []byte(hashedPassword), 0600); errWrite != nil {
-		return errWrite
+	if errSavePass := os.WriteFile(passwordPath, []byte(hashedPassword), 0600); errSavePass != nil {
+		return fmt.Errorf("ошибка сохранения пароля в файл: %w", errSavePass)
+	}
+
+	saltPath := c.getSaltPath()
+	if errCreateSaltPath := os.MkdirAll(filepath.Dir(saltPath), 0700); errCreateSaltPath != nil {
+		return fmt.Errorf("ошибка создания директории для соли: %w", errCreateSaltPath)
+	}
+
+	if errSaveSalt := os.WriteFile(saltPath, salt, 0600); errSaveSalt != nil {
+		return fmt.Errorf("ошибка сохранения соли в файл: %w", errSaveSalt)
 	}
 
 	return nil
@@ -477,6 +510,58 @@ func (c *Client) getMasterPasswordPath() string {
 	}
 
 	return filepath.Join(configDir, c.username+"_"+masterPasswordFileName)
+}
+
+func (c *Client) getSaltPath() string {
+	configDir, err := c.GetConfigDir()
+	if err != nil {
+		return ""
+	}
+
+	if c.username == "" {
+		return filepath.Join(configDir, "salt.key")
+	}
+
+	return filepath.Join(configDir, c.username+"_salt.key")
+}
+
+func (c *Client) initSalt() error {
+	if c.username == "" {
+		return errors.New("имя пользователя не задано")
+	}
+
+	saltPath := c.getSaltPath()
+
+	if _, err := os.Stat(saltPath); os.IsNotExist(err) {
+		salt := make([]byte, crypto.SaltLength)
+		if _, errSalt := rand.Read(salt); errSalt != nil {
+			return fmt.Errorf("ошибка генерации соли: %w", errSalt)
+		}
+		c.salt = salt
+
+		if errCreateDir := os.MkdirAll(filepath.Dir(saltPath), 0700); errCreateDir != nil {
+			return fmt.Errorf("ошибка создания директории для соли: %w", errCreateDir)
+		}
+
+		if errSaveSalt := os.WriteFile(saltPath, salt, 0600); errSaveSalt != nil {
+			return fmt.Errorf("ошибка сохранения соли в файл: %w", errSaveSalt)
+		}
+
+		return nil
+	}
+
+	salt, err := os.ReadFile(saltPath)
+	if err != nil {
+		return fmt.Errorf("ошибка чтения файла с солью: %w", err)
+	}
+
+	if len(salt) != crypto.SaltLength {
+		return fmt.Errorf("неверный размер соли: %d, ожидается: %d", len(salt), crypto.SaltLength)
+	}
+
+	c.salt = salt
+
+	return nil
 }
 
 func (c *Client) sendRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
@@ -520,36 +605,63 @@ func (c *Client) sendRequest(ctx context.Context, method, path string, body io.R
 	return resp, nil
 }
 
-func (c *Client) processDataContent(data *models.DataResponse) {
-	if data.Content != nil {
-		return
+func (c *Client) processDataContent(data *models.DataResponse) error {
+	if data.Content == nil {
+		return nil
 	}
 
 	switch data.Type {
 	case models.LoginPassword:
-		data.Content = models.LoginPasswordData{
-			Login:    "Логин недоступен без расшифровки",
-			Password: "Пароль недоступен без расшифровки",
+		var loginData models.LoginPasswordData
+		if err := c.unmarshalContent(data.Content, &loginData); err != nil {
+			return err
 		}
+		data.Content = loginData
 	case models.TextData:
-		data.Content = models.TextDataContent{
-			Text: "Текст недоступен без расшифровки",
+		var textData models.TextDataContent
+		if err := c.unmarshalContent(data.Content, &textData); err != nil {
+			return err
 		}
+		data.Content = textData
 	case models.CardData:
-		data.Content = models.CardDataContent{
-			CardNumber: "Номер карты недоступен без расшифровки",
-			CardHolder: "Владелец карты недоступен без расшифровки",
-			ExpiryDate: "Срок действия недоступен без расшифровки",
-			CVV:        "CVV недоступен без расшифровки",
+		var cardData models.CardDataContent
+		if err := c.unmarshalContent(data.Content, &cardData); err != nil {
+			return err
 		}
+		data.Content = cardData
 	case models.BinaryData:
-		data.Content = models.BinaryDataContent{
-			FileName: "Файл недоступен без расшифровки",
-			Data:     []byte{},
+		var binaryData models.BinaryDataContent
+		if err := c.unmarshalContent(data.Content, &binaryData); err != nil {
+			return err
 		}
+		data.Content = binaryData
 	}
+
+	return nil
+}
+
+func (c *Client) unmarshalContent(content any, data any) error {
+	jsonData, err := json.Marshal(content)
+	if err != nil {
+		return err
+	}
+
+	if errUnmarshal := json.Unmarshal(jsonData, data); errUnmarshal != nil {
+		return errUnmarshal
+	}
+
+	return nil
 }
 
 func (c *Client) deriveKeyFromPassword(password string) []byte {
-	return crypto.GenerateKey([]byte(password), c.salt)
+	if len(c.salt) == 0 {
+		tempSalt := make([]byte, crypto.SaltLength)
+		copy(tempSalt, "temporary_salt")
+
+		return crypto.GenerateKey([]byte(password), tempSalt)
+	}
+
+	key := crypto.GenerateKey([]byte(password), c.salt)
+
+	return key
 }
