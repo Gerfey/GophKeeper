@@ -28,12 +28,6 @@ func main() {
 }
 
 func runTUI(cfg *config.Config) error {
-	if os.Getenv("TERM") == "" {
-		if err := os.Setenv("TERM", "xterm-256color"); err != nil {
-			return fmt.Errorf("ошибка установки переменной окружения TERM: %w", err)
-		}
-	}
-
 	tui, err := client.NewTUI(cfg)
 	if err != nil {
 		return fmt.Errorf("ошибка инициализации TUI: %w", err)

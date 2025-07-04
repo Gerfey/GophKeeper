@@ -12,15 +12,15 @@ const (
 )
 
 type Data struct {
-	ID            int64       `json:"id"             db:"id"`
-	UserID        int64       `json:"user_id"        db:"user_id"`
-	Type          DataType    `json:"type"           db:"data_type"`
-	Name          string      `json:"name"           db:"name"           validate:"required,min=1,max=100"`
-	EncryptedData []byte      `json:"encrypted_data" db:"encrypted_data"`
-	Content       interface{} `json:"-"              db:"-"`
-	Metadata      string      `json:"metadata"       db:"metadata"`
-	CreatedAt     time.Time   `json:"created_at"     db:"created_at"`
-	UpdatedAt     time.Time   `json:"updated_at"     db:"updated_at"`
+	ID            int64     `json:"id"             db:"id"`
+	UserID        int64     `json:"user_id"        db:"user_id"`
+	Type          DataType  `json:"type"           db:"data_type"`
+	Name          string    `json:"name"           db:"name"           validate:"required,min=1,max=100"`
+	EncryptedData []byte    `json:"encrypted_data" db:"encrypted_data"`
+	Content       any       `json:"-"              db:"-"`
+	Metadata      string    `json:"metadata"       db:"metadata"`
+	CreatedAt     time.Time `json:"created_at"     db:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"     db:"updated_at"`
 }
 
 type LoginPasswordData struct {
@@ -48,21 +48,21 @@ type BinaryDataContent struct {
 }
 
 type DataRequest struct {
-	Type          DataType    `json:"type"                     validate:"required"`
-	Name          string      `json:"name"                     validate:"required,min=1,max=100"`
-	Content       interface{} `json:"content,omitempty"`
-	EncryptedData []byte      `json:"encrypted_data,omitempty"`
-	Metadata      string      `json:"metadata"`
+	Type          DataType `json:"type"                     validate:"required"`
+	Name          string   `json:"name"                     validate:"required,min=1,max=100"`
+	Content       any      `json:"content,omitempty"`
+	EncryptedData []byte   `json:"encrypted_data,omitempty"`
+	Metadata      string   `json:"metadata"`
 }
 
 type DataResponse struct {
-	ID        int64       `json:"id"`
-	Type      DataType    `json:"type"`
-	Name      string      `json:"name"`
-	Content   interface{} `json:"content"`
-	Metadata  string      `json:"metadata"`
-	CreatedAt time.Time   `json:"created_at"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	ID        int64     `json:"id"`
+	Type      DataType  `json:"type"`
+	Name      string    `json:"name"`
+	Content   any       `json:"content"`
+	Metadata  string    `json:"metadata"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func (d *Data) ToDataResponse() DataResponse {

@@ -5,8 +5,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gerfey/gophkeeper/internal/models"
 	"github.com/gin-gonic/gin"
+
+	"github.com/gerfey/gophkeeper/internal/models"
 )
 
 type DataService interface {

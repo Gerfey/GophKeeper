@@ -37,11 +37,11 @@ func (l Level) String() string {
 }
 
 type Logger interface {
-	Debugf(format string, args ...interface{})
-	Infof(format string, args ...interface{})
-	Warnf(format string, args ...interface{})
-	Errorf(format string, args ...interface{})
-	Fatalf(format string, args ...interface{})
+	Debugf(format string, args ...any)
+	Infof(format string, args ...any)
+	Warnf(format string, args ...any)
+	Errorf(format string, args ...any)
+	Fatalf(format string, args ...any)
 }
 
 type logger struct {
@@ -62,23 +62,23 @@ func NewLogger(out io.Writer, level Level, prefix string) Logger {
 	}
 }
 
-func (l *logger) Debugf(format string, args ...interface{}) {
+func (l *logger) Debugf(format string, args ...any) {
 	l.logf(LevelDebug, format, args...)
 }
 
-func (l *logger) Infof(format string, args ...interface{}) {
+func (l *logger) Infof(format string, args ...any) {
 	l.logf(LevelInfo, format, args...)
 }
 
-func (l *logger) Warnf(format string, args ...interface{}) {
+func (l *logger) Warnf(format string, args ...any) {
 	l.logf(LevelWarn, format, args...)
 }
 
-func (l *logger) Errorf(format string, args ...interface{}) {
+func (l *logger) Errorf(format string, args ...any) {
 	l.logf(LevelError, format, args...)
 }
 
-func (l *logger) Fatalf(format string, args ...interface{}) {
+func (l *logger) Fatalf(format string, args ...any) {
 	l.logf(LevelFatal, format, args...)
 	os.Exit(1)
 }
@@ -87,7 +87,7 @@ func DefaultLogger() Logger {
 	return NewLogger(os.Stdout, LevelInfo, "GophKeeper")
 }
 
-func (l *logger) logf(level Level, format string, args ...interface{}) {
+func (l *logger) logf(level Level, format string, args ...any) {
 	if level < l.level {
 		return
 	}

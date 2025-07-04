@@ -10,8 +10,9 @@ import (
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/gerfey/gophkeeper/internal/models"
 	"github.com/rivo/tview"
+
+	"github.com/gerfey/gophkeeper/internal/models"
 )
 
 func (t *TUI) updateDataTable(data []models.DataResponse) {
@@ -151,7 +152,7 @@ func (t *TUI) handleSaveData(form *tview.Form, nameField *tview.InputField, data
 	t.processDataByType(form, req)
 }
 
-func (t *TUI) encryptAndSaveData(data interface{}, req *models.DataRequest) {
+func (t *TUI) encryptAndSaveData(data any, req *models.DataRequest) {
 	t.showPasswordDialog(func(password string) {
 		encryptedData, errEncryptData := t.client.EncryptData(data, req.Type, password)
 		if errEncryptData != nil {
@@ -345,7 +346,7 @@ func (t *TUI) decryptAndUpdateData(currentData *models.DataResponse, dataIndex i
 	}
 }
 
-func (t *TUI) validateDecryptedContent(dataType models.DataType, content interface{}) bool {
+func (t *TUI) validateDecryptedContent(dataType models.DataType, content any) bool {
 	switch dataType {
 	case models.BinaryData:
 		if binaryData, ok := content.(models.BinaryDataContent); ok {
@@ -386,7 +387,7 @@ func (t *TUI) validateDecryptedContent(dataType models.DataType, content interfa
 	return true
 }
 
-func (t *TUI) displayLoginPasswordContent(text *tview.TextView, content interface{}) {
+func (t *TUI) displayLoginPasswordContent(text *tview.TextView, content any) {
 	if data, ok := content.(models.LoginPasswordData); ok {
 		fmt.Fprintf(text, "[yellow]Логин:[white] %s\n", data.Login)
 		fmt.Fprintf(text, "[yellow]Пароль:[white] %s\n", data.Password)
@@ -428,7 +429,7 @@ func (t *TUI) displayDataContentByType(text *tview.TextView, data models.DataRes
 	}
 }
 
-func (t *TUI) displayTextDataContent(text *tview.TextView, content interface{}) {
+func (t *TUI) displayTextDataContent(text *tview.TextView, content any) {
 	if data, ok := content.(models.TextDataContent); ok {
 		fmt.Fprintf(text, "%s\n", data.Text)
 	} else {
@@ -436,7 +437,7 @@ func (t *TUI) displayTextDataContent(text *tview.TextView, content interface{}) 
 	}
 }
 
-func (t *TUI) displayCardDataContent(text *tview.TextView, content interface{}) {
+func (t *TUI) displayCardDataContent(text *tview.TextView, content any) {
 	if data, ok := content.(models.CardDataContent); ok {
 		fmt.Fprintf(text, "[yellow]Номер карты:[white] %s\n", data.CardNumber)
 		fmt.Fprintf(text, "[yellow]Имя владельца:[white] %s\n", data.CardHolder)
@@ -447,7 +448,7 @@ func (t *TUI) displayCardDataContent(text *tview.TextView, content interface{}) 
 	}
 }
 
-func (t *TUI) displayBinaryDataContent(text *tview.TextView, content interface{}) {
+func (t *TUI) displayBinaryDataContent(text *tview.TextView, content any) {
 	contentType := fmt.Sprintf("%T", content)
 
 	if data, ok := content.(models.BinaryDataContent); ok {

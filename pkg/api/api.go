@@ -4,9 +4,10 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/gerfey/gophkeeper/internal/auth"
 	"github.com/gerfey/gophkeeper/pkg/logger"
-	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {

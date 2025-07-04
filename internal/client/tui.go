@@ -3,9 +3,10 @@ package client
 import (
 	"time"
 
+	"github.com/rivo/tview"
+
 	"github.com/gerfey/gophkeeper/internal/models"
 	"github.com/gerfey/gophkeeper/pkg/config"
-	"github.com/rivo/tview"
 )
 
 const (

@@ -187,7 +187,7 @@ func (c *Client) GetEncryptedData(id int64) (*models.Data, error) {
 	return &data, nil
 }
 
-func (c *Client) DecryptData(data *models.Data, masterPassword string) (interface{}, error) {
+func (c *Client) DecryptData(data *models.Data, masterPassword string) (any, error) {
 	key := c.deriveKeyFromPassword(masterPassword)
 
 	decrypted, err := crypto.Decrypt(data.EncryptedData, key)
@@ -195,10 +195,10 @@ func (c *Client) DecryptData(data *models.Data, masterPassword string) (interfac
 		return nil, fmt.Errorf("ошибка расшифровки данных: %w", err)
 	}
 
-	var result interface{}
+	var result any
 
 	if data.Type == models.BinaryData {
-		var binaryDataMap map[string]interface{}
+		var binaryDataMap map[string]any
 		if errUnmarshal := json.Unmarshal(decrypted, &binaryDataMap); errUnmarshal != nil {
 			return nil, errors.New("ошибка десериализации бинарных данных")
 		}
@@ -254,13 +254,13 @@ func (c *Client) DecryptData(data *models.Data, masterPassword string) (interfac
 	return result, nil
 }
 
-func (c *Client) EncryptData(data interface{}, dataType models.DataType, masterPassword string) ([]byte, error) {
+func (c *Client) EncryptData(data any, dataType models.DataType, masterPassword string) ([]byte, error) {
 	var jsonData []byte
 	var err error
 
 	if dataType == models.BinaryData {
 		if binaryData, ok := data.(models.BinaryDataContent); ok {
-			binaryDataMap := map[string]interface{}{
+			binaryDataMap := map[string]any{
 				"file_name": binaryData.FileName,
 				"data":      base64.StdEncoding.EncodeToString(binaryData.Data),
 			}

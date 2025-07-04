@@ -61,24 +61,6 @@ func (s *UserService) GetUserByUsername(ctx context.Context, username string) (*
 	return s.repo.GetByUsername(ctx, username)
 }
 
-func (s *UserService) VerifyUser(ctx context.Context, creds *models.UserCredentials) (*models.User, error) {
-	user, err := s.repo.GetByUsername(ctx, creds.Username)
-	if err != nil {
-		if errors.Is(err, ErrUserNotFound) {
-			return nil, ErrInvalidPassword
-		}
-
-		return nil, err
-	}
-
-	valid := crypto.VerifyPassword(creds.Password, user.Password)
-	if !valid {
-		return nil, ErrInvalidPassword
-	}
-
-	return user, nil
-}
-
 func (s *UserService) CheckCredentials(ctx context.Context, username string, password string) (*models.User, error) {
 	user, err := s.repo.GetByUsername(ctx, username)
 	if err != nil {

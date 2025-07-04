@@ -5,8 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gerfey/gophkeeper/internal/models"
 	"github.com/gin-gonic/gin"
+
+	"github.com/gerfey/gophkeeper/internal/models"
 )
 
 const (

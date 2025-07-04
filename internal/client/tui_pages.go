@@ -2,8 +2,9 @@ package client
 
 import (
 	"github.com/gdamore/tcell/v2"
-	"github.com/gerfey/gophkeeper/internal/models"
 	"github.com/rivo/tview"
+
+	"github.com/gerfey/gophkeeper/internal/models"
 )
 
 const (
